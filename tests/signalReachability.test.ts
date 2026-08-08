@@ -84,7 +84,7 @@ describe("シグナル到達可能性", () => {
   });
 
   it("条件が揃った下降相場ではSELLが発火する", () => {
-    const result = runScenario(289, -1);
+    const result = runScenario(2634, -1);
     expect(result.signal).toBe("SELL");
     expect(result.analysis.mtfFilter.sellPass).toBe(true);
     expect(result.analysis.currentRSI).toBeGreaterThan(30);

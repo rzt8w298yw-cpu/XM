@@ -171,20 +171,37 @@ async function fetchYahooCandles(
 // 集約
 // ============================================================
 
-/** 1H足を factor 本ずつまとめて上位足にする */
+/**
+ * 1H足を上位足に集約する。
+ *
+ * 区切りはUTCの絶対時刻（timestamp / factor時間）で決める。配列の先頭から
+ * factor本ずつ数える方式にすると、取得ウィンドウが1本ずれただけで全ての
+ * 上位足の区切り位置がずれ、8Hトレンドや4H MACDの判定が別物になってしまう。
+ * 絶対時刻で区切れば、いつ取得しても同じ足が組み上がる。
+ */
 export function aggregate(candles1H: OHLC[], factor: number): OHLC[] {
-  const result: OHLC[] = [];
-  for (let i = 0; i + factor <= candles1H.length; i += factor) {
-    const chunk = candles1H.slice(i, i + factor);
-    result.push({
-      timestamp: chunk[0].timestamp,
-      open: chunk[0].open,
-      high: Math.max(...chunk.map((c) => c.high)),
-      low: Math.min(...chunk.map((c) => c.low)),
-      close: chunk[chunk.length - 1].close,
-    });
+  const bucketMs = factor * HOUR_MS;
+  const buckets = new Map<number, OHLC[]>();
+
+  for (const candle of candles1H) {
+    const key = Math.floor(candle.timestamp / bucketMs) * bucketMs;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(candle);
+    else buckets.set(key, [candle]);
   }
-  return result;
+
+  return [...buckets.keys()]
+    .sort((a, b) => a - b)
+    .map((key) => {
+      const chunk = buckets.get(key)!;
+      return {
+        timestamp: key,
+        open: chunk[0].open,
+        high: Math.max(...chunk.map((c) => c.high)),
+        low: Math.min(...chunk.map((c) => c.low)),
+        close: chunk[chunk.length - 1].close,
+      };
+    });
 }
 
 // ============================================================
