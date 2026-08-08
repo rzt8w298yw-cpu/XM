@@ -139,3 +139,136 @@ describe("generateSignal", () => {
     expect(result.signal).toBe("WAIT");
   });
 });
+
+/**
+ * 「トレンドと逆行する材料を加点しない」という性質のテスト。
+ *
+ * ダイバージェンスとダウ理論構造の判定式は、条件を足すときに後段のOR節へ
+ * 吸収されて前段の意図が消えやすい。個別のケースを固定するのではなく、
+ * 多数の相場を回して「逆行しているのに成立している」ケースが1件も無いことを
+ * 確かめる。逆行ケース自体が観測できていることも併せて確認し、
+ * テストが空振りしていないことを担保する。
+ */
+describe("トレンドに逆行する材料の扱い", () => {
+  function mulberry32(seed: number): () => number {
+    let a = seed;
+    return () => {
+      a |= 0;
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  /** ノイズと押し戻しを含むランダムウォーク。逆行する構造が自然に混ざる */
+  function walk(
+    count: number,
+    start: number,
+    drift: number,
+    volatility: number,
+    seed: number,
+    stepMs: number,
+  ): OHLC[] {
+    const rand = mulberry32(seed);
+    const candles: OHLC[] = [];
+    let price = start;
+    for (let i = 0; i < count; i++) {
+      const open = price;
+      const close = open + drift + (rand() - 0.5) * volatility * 2;
+      const wick = Math.abs(close - open) * 0.5 + rand() * volatility * 0.5;
+      candles.push({
+        timestamp: LONDON_TS - (count - 1 - i) * stepMs,
+        open,
+        high: Math.max(open, close) + wick * rand(),
+        low: Math.min(open, close) - wick * rand(),
+        close,
+      });
+      price = close;
+    }
+    return candles;
+  }
+
+  function sample() {
+    const results = [];
+    for (let seed = 1; seed <= 150; seed++) {
+      for (const direction of [1, -1] as const) {
+        const candles1H = walk(
+          600,
+          direction === 1 ? 150 : 170,
+          direction * 0.012,
+          0.05,
+          seed,
+          HOUR,
+        );
+        const candlesDaily = walk(
+          300,
+          direction === 1 ? 140 : 200,
+          direction * 0.1,
+          0.4,
+          seed + 9999,
+          24 * HOUR,
+        );
+        results.push(
+          generateSignal(
+            candles1H,
+            aggregate(candles1H, 4),
+            candlesDaily,
+            aggregate(candles1H, 8),
+            { overrideTimestamp: LONDON_TS },
+          ),
+        );
+      }
+    }
+    return results;
+  }
+
+  it("逆行するダイバージェンスは成立扱いにしない", () => {
+    let opposingSeen = 0;
+
+    for (const result of sample()) {
+      const { trend1H, divergence } = result.analysis;
+      const opposing =
+        (trend1H === "UP" && divergence === "bearish") ||
+        (trend1H === "DOWN" && divergence === "bullish");
+      if (!opposing) continue;
+
+      opposingSeen++;
+      const condition = result.conditions.find((c) => c.id === "divergence");
+      expect(condition?.met).toBe(false);
+    }
+
+    expect(opposingSeen).toBeGreaterThan(0);
+  });
+
+  it("逆行するダウ理論構造は成立扱いにしない", () => {
+    let opposingSeen = 0;
+
+    for (const result of sample()) {
+      const { trend1H, marketStructure } = result.analysis;
+      const opposing =
+        (trend1H === "UP" && marketStructure === "DOWNTREND") ||
+        (trend1H === "DOWN" && marketStructure === "UPTREND");
+      if (!opposing) continue;
+
+      opposingSeen++;
+      const condition = result.conditions.find((c) => c.id === "market_structure");
+      expect(condition?.met).toBe(false);
+    }
+
+    expect(opposingSeen).toBeGreaterThan(0);
+  });
+
+  it("レンジ構造も成立扱いにしない", () => {
+    let rangeSeen = 0;
+
+    for (const result of sample()) {
+      if (result.analysis.marketStructure !== "RANGE") continue;
+      rangeSeen++;
+      const condition = result.conditions.find((c) => c.id === "market_structure");
+      expect(condition?.met).toBe(false);
+    }
+
+    expect(rangeSeen).toBeGreaterThan(0);
+  });
+});

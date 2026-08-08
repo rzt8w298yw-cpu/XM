@@ -222,13 +222,15 @@ export function generateSignal(
   });
 
   // 3. ダウ理論構造
+  // トレンド方向と高値安値の切り上げ/切り下げが一致している場合のみ成立。
+  // 逆行している構造（上昇トレンド中の切り下げなど）は加点しない。
   const structureAligned = (trend1H === "UP" && marketStructure === "UPTREND") ||
                            (trend1H === "DOWN" && marketStructure === "DOWNTREND");
   conditions.push({
     id: "market_structure",
     name: "ダウ理論構造",
     category: "trend",
-    met: structureAligned || marketStructure !== "RANGE",
+    met: structureAligned,
     value: marketStructure === "UPTREND" ? "高値安値切り上げ" : marketStructure === "DOWNTREND" ? "高値安値切り下げ" : "レンジ",
     weight: 2,
   });
@@ -286,9 +288,13 @@ export function generateSignal(
   });
 
   // 8. ダイバージェンス
-  const divergenceOk = (trend1H === "UP" && divergence === "bullish") ||
-                       (trend1H === "DOWN" && divergence === "bearish") ||
-                       divergence !== "none";
+  // ダイバージェンスは反転指標なので、トレンドと同じ向きのものはほとんど出現しない
+  // （計測では相場付きによらず0.2〜0.7%）。順張り一致を成立条件にすると条件が死ぬため、
+  // 「トレンドに逆行するダイバージェンスが出ていないこと」を成立条件とする。
+  // 上昇トレンド中のベアリッシュ・ダイバージェンスは天井警戒シグナルなので不成立にする。
+  const divergenceOpposing = (trend1H === "UP" && divergence === "bearish") ||
+                             (trend1H === "DOWN" && divergence === "bullish");
+  const divergenceOk = !divergenceOpposing;
   conditions.push({
     id: "divergence",
     name: "ダイバージェンス",
