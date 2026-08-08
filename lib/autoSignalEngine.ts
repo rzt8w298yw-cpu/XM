@@ -118,6 +118,36 @@ export interface SignalResult {
 }
 
 /**
+ * シグナル判定の閾値。
+ * 既定値はバックテストでチューニング済みの値で、`generateSignal` に渡さなければ
+ * 従来どおりの挙動になる。バックテストで振って比較するために外出ししている。
+ */
+export interface SignalThresholds {
+  /** BUYを通す重み付きスコアの下限（0-1） */
+  buyScoreMin: number;
+  /** SELL A型スコアの下限（0-1） */
+  sellScoreMin: number;
+  /** これ以上のRSIではBUYを出さない（買われすぎ除外） */
+  buyRsiMax: number;
+  /** これ以下のRSIではSELLを出さない（売られすぎ除外） */
+  sellRsiMin: number;
+}
+
+export const DEFAULT_THRESHOLDS: SignalThresholds = {
+  buyScoreMin: 0.65,
+  sellScoreMin: 0.65,
+  buyRsiMax: 70,
+  sellRsiMin: 30,
+};
+
+export interface GenerateSignalOptions {
+  /** バックテスト時に「現在時刻」として扱うタイムスタンプ */
+  overrideTimestamp?: number;
+  /** 閾値の上書き（指定した項目だけ差し替わる） */
+  thresholds?: Partial<SignalThresholds>;
+}
+
+/**
  * マルチタイムフレームのデータからシグナルを自動判定
  */
 export function generateSignal(
@@ -125,8 +155,10 @@ export function generateSignal(
   candles4H: OHLC[],
   candlesDaily: OHLC[],
   candles8H?: OHLC[],
-  options?: { overrideTimestamp?: number }
+  options?: GenerateSignalOptions
 ): SignalResult {
+  const thresholds: SignalThresholds = { ...DEFAULT_THRESHOLDS, ...options?.thresholds };
+
   // === テクニカル指標の計算 ===
   const closes1H = candles1H.map(c => c.close);
   const closes4H = candles4H.map(c => c.close);
@@ -463,7 +495,7 @@ export function generateSignal(
       currentPrice, ema20_1H, ema200_1H, currentRSI, macd, bb, timeSession, trendDaily, candles1H
     );
     sellScoreValue = sellScore;
-    if (sellScore >= 0.65) {
+    if (sellScore >= thresholds.sellScoreMin) {
       signal = "SELL";
     }
   }
@@ -532,8 +564,8 @@ export function generateSignal(
     const preFilterWeight = conditions.filter(c => c.met).reduce((sum, c) => sum + c.weight, 0);
     const totalWeightPre = conditions.reduce((sum, c) => sum + c.weight, 0);
     const weightedScoreRatio = preFilterWeight / totalWeightPre;
-    if (weightedScoreRatio < 0.65) {
-      signal = "WAIT"; // BUYスコア65%未満は除外（改善案1）
+    if (weightedScoreRatio < thresholds.buyScoreMin) {
+      signal = "WAIT"; // BUYスコアが下限未満は除外（改善案1）
     }
   }
 
@@ -553,10 +585,10 @@ export function generateSignal(
   // ===== RSI追加フィルター（Filter E — 最適化結果） =====
   // BUY: RSI < 70（買われすぎでないことを確認）
   // SELL: RSI > 30（売られすぎでないことを確認）
-  if (signal === "BUY" && currentRSI >= 70) {
+  if (signal === "BUY" && currentRSI >= thresholds.buyRsiMax) {
     signal = "WAIT"; // RSI過熱 — BUY除外
   }
-  if (signal === "SELL" && currentRSI <= 30) {
+  if (signal === "SELL" && currentRSI <= thresholds.sellRsiMin) {
     signal = "WAIT"; // RSI過売り — SELL除外
   }
 

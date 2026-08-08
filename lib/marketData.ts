@@ -50,21 +50,34 @@ export interface MarketData {
 
 const HOUR_MS = 3600_000;
 
+export interface FetchOptions {
+  /** 1H足の取得期間。Yahooの1H足は最大730日まで */
+  range1H?: string;
+  /** 日足の取得期間 */
+  rangeDaily?: string;
+  /** 合成データを生成する際の1H足の本数 */
+  syntheticBars?: number;
+}
+
 /**
  * 指定シンボルのマルチタイムフレームデータを取得。
  * 1H足を基に4H/8H足を集約して作る（Yahooは4H/8H足を配信していないため）。
  */
-export async function fetchMarketData(symbolId: string): Promise<MarketData> {
+export async function fetchMarketData(
+  symbolId: string,
+  options: FetchOptions = {},
+): Promise<MarketData> {
   const spec = getSymbolSpec(symbolId);
+  const { range1H = "60d", rangeDaily = "2y", syntheticBars = 1200 } = options;
 
   if (process.env.MARKET_DATA_PROVIDER === "mock") {
-    return buildSynthetic(spec, "MARKET_DATA_PROVIDER=mock が設定されています");
+    return buildSynthetic(spec, "MARKET_DATA_PROVIDER=mock が設定されています", syntheticBars);
   }
 
   try {
     const [candles1H, candlesDaily] = await Promise.all([
-      fetchYahooCandles(spec.yahoo, "1h", "60d"),
-      fetchYahooCandles(spec.yahoo, "1d", "2y"),
+      fetchYahooCandles(spec.yahoo, "1h", range1H),
+      fetchYahooCandles(spec.yahoo, "1d", rangeDaily),
     ]);
 
     // EMA200を1H足で計算するため最低200本、余裕をみて250本を要求
@@ -72,6 +85,7 @@ export async function fetchMarketData(symbolId: string): Promise<MarketData> {
       return buildSynthetic(
         spec,
         `取得本数が不足しています (1H: ${candles1H.length}本, 日足: ${candlesDaily.length}本)`,
+        syntheticBars,
       );
     }
 
@@ -85,7 +99,7 @@ export async function fetchMarketData(symbolId: string): Promise<MarketData> {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return buildSynthetic(spec, `実データの取得に失敗しました: ${message}`);
+    return buildSynthetic(spec, `実データの取得に失敗しました: ${message}`, syntheticBars);
   }
 }
 
@@ -208,11 +222,12 @@ export function aggregate(candles1H: OHLC[], factor: number): OHLC[] {
 // 合成データ（オフライン用フォールバック）
 // ============================================================
 
-function buildSynthetic(spec: SymbolSpec, note: string): MarketData {
+function buildSynthetic(spec: SymbolSpec, note: string, bars1H = 1200): MarketData {
   // 直近の完了済み1H足を終端にする
   const endTime = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
-  const candles1H = generateSyntheticCandles(spec, 1200, HOUR_MS, endTime);
-  const candlesDaily = generateSyntheticCandles(spec, 400, 24 * HOUR_MS, endTime);
+  const candles1H = generateSyntheticCandles(spec, bars1H, HOUR_MS, endTime);
+  const dailyBars = Math.max(400, Math.ceil(bars1H / 24) + 250);
+  const candlesDaily = generateSyntheticCandles(spec, dailyBars, 24 * HOUR_MS, endTime);
 
   return {
     symbol: spec.id,

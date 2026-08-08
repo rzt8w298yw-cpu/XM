@@ -1,0 +1,318 @@
+/**
+ * バックテスト基盤
+ *
+ * 1H足を1本ずつ前進させながら `generateSignal` を呼び、BUY/SELLが出たら
+ * ATRベースの損切り/利確に到達するまで先のローソク足でシミュレートする。
+ *
+ * 先読み（lookahead）を避けるための約束事:
+ * - 判定に渡すのは評価中の足までのウィンドウのみ。
+ * - 日足は「その時点で確定済み」のものだけ渡す（形成中の日足の終値は使えない）。
+ * - エントリーはシグナルが出た足の終値ではなく、次の足の始値で約定させる。
+ * - 同じ足の中で利確・損切りの両方に触れた場合は損切りを優先する（悲観側）。
+ */
+import {
+  generateSignal,
+  type SignalThresholds,
+  type SignalType,
+} from "./autoSignalEngine";
+import { aggregate } from "./marketData";
+import type { OHLC } from "./technicalAnalysis";
+import { getTimeSessionFromTimestamp, type TimeSession } from "./technicalAnalysis";
+
+const HOUR_MS = 3_600_000;
+const DAY_MS = 24 * HOUR_MS;
+
+export interface BacktestConfig {
+  /** 1pipあたりの価格差 */
+  pipSize: number;
+  /** 損切り幅 = ATR * この倍率 */
+  atrStopMultiplier: number;
+  /** 利確幅 = 損切り幅 * この倍率 */
+  riskRewardRatio: number;
+  /** 往復のスプレッド/コスト（pips）。全トレードの損益から差し引く */
+  spreadPips: number;
+  /** 判定に渡す1H足の本数。本番アプリの取得本数に合わせる */
+  windowSize: number;
+  /** 決済されないまま保有し続ける上限（1H足の本数） */
+  maxHoldingBars: number;
+  /** 閾値の上書き */
+  thresholds?: Partial<SignalThresholds>;
+}
+
+export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
+  pipSize: 0.01,
+  atrStopMultiplier: 1.5,
+  riskRewardRatio: 2,
+  spreadPips: 1.0,
+  windowSize: 1000,
+  maxHoldingBars: 120,
+};
+
+export type ExitReason = "take_profit" | "stop_loss" | "timeout" | "end_of_data";
+
+export interface Trade {
+  direction: Exclude<SignalType, "WAIT">;
+  entryTime: number;
+  entryPrice: number;
+  exitTime: number;
+  exitPrice: number;
+  stopLoss: number;
+  takeProfit: number;
+  /** スプレッド控除後の損益（pips） */
+  pips: number;
+  exitReason: ExitReason;
+  holdingBars: number;
+  confidence: number;
+  session: TimeSession;
+}
+
+export interface BacktestResult {
+  trades: Trade[];
+  /** ポジション保有中で判定をスキップした足の本数 */
+  barsInPosition: number;
+  /** 判定を実行した足の本数 */
+  barsEvaluated: number;
+  stats: BacktestStats;
+}
+
+export interface BacktestStats {
+  trades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  netPips: number;
+  grossProfitPips: number;
+  grossLossPips: number;
+  /** 総利益 / 総損失。損失0なら Infinity */
+  profitFactor: number;
+  /** 1トレードあたりの期待値（pips） */
+  expectancyPips: number;
+  /** 累積損益の最大落ち込み幅（pips） */
+  maxDrawdownPips: number;
+  averageHoldingBars: number;
+  byDirection: { BUY: DirectionStats; SELL: DirectionStats };
+}
+
+export interface DirectionStats {
+  trades: number;
+  wins: number;
+  winRate: number;
+  netPips: number;
+  profitFactor: number;
+}
+
+/**
+ * バックテストを実行する。
+ * candles1H は時系列昇順、candlesDaily も昇順であること。
+ */
+export function runBacktest(
+  candles1H: OHLC[],
+  candlesDaily: OHLC[],
+  config: Partial<BacktestConfig> = {},
+): BacktestResult {
+  const cfg = { ...DEFAULT_BACKTEST_CONFIG, ...config };
+  const trades: Trade[] = [];
+
+  let barsInPosition = 0;
+  let barsEvaluated = 0;
+  // このインデックスまではポジション保有中なので新規判定しない
+  let occupiedUntil = -1;
+
+  // ウォームアップ: 1H足のEMA200と、日足のEMA200が計算できるところから始める
+  const firstBar = Math.max(cfg.windowSize, 250);
+
+  for (let i = firstBar; i < candles1H.length - 1; i++) {
+    const bar = candles1H[i];
+    // 評価中の足が閉じた時刻。ここまでの情報しか使ってはいけない
+    const barCloseTime = bar.timestamp + HOUR_MS;
+
+    // ポジション保有中は新規判定しない（同時に1ポジションのみ）
+    if (i <= occupiedUntil) {
+      barsInPosition++;
+      continue;
+    }
+
+    const window1H = candles1H.slice(i - cfg.windowSize + 1, i + 1);
+    // 確定済みの日足だけを渡す
+    const dailyClosed = candlesDaily.filter((d) => d.timestamp + DAY_MS <= barCloseTime);
+    if (dailyClosed.length < 210) continue;
+
+    barsEvaluated++;
+
+    const result = generateSignal(
+      window1H,
+      aggregate(window1H, 4),
+      dailyClosed,
+      aggregate(window1H, 8),
+      { overrideTimestamp: bar.timestamp, thresholds: cfg.thresholds },
+    );
+
+    if (result.signal === "WAIT") continue;
+
+    const atr = result.analysis.currentATR;
+    if (atr <= 0) continue;
+
+    const trade = simulateTrade(
+      candles1H,
+      i,
+      result.signal,
+      atr,
+      result.confidence,
+      cfg,
+    );
+    if (!trade) continue;
+
+    trades.push(trade);
+    occupiedUntil = i + trade.holdingBars;
+  }
+
+  return {
+    trades,
+    barsInPosition,
+    barsEvaluated,
+    stats: summarize(trades),
+  };
+}
+
+/**
+ * シグナルが出た足の「次の足の始値」で入り、損切り/利確に触れるまで前進させる。
+ * 決済ロジックはバックテスト結果を左右する中核なので、単体でテストできるよう公開している。
+ */
+export function simulateTrade(
+  candles1H: OHLC[],
+  signalIndex: number,
+  direction: Exclude<SignalType, "WAIT">,
+  atr: number,
+  confidence: number,
+  cfg: BacktestConfig,
+): Trade | null {
+  const entryIndex = signalIndex + 1;
+  if (entryIndex >= candles1H.length) return null;
+
+  const entryPrice = candles1H[entryIndex].open;
+  const sign = direction === "BUY" ? 1 : -1;
+  const stopDistance = atr * cfg.atrStopMultiplier;
+  const targetDistance = stopDistance * cfg.riskRewardRatio;
+  const stopLoss = entryPrice - stopDistance * sign;
+  const takeProfit = entryPrice + targetDistance * sign;
+
+  // maxHoldingBars 本ぶん保有したら打ち切る（エントリー足を1本目と数える）
+  const lastIndex = Math.min(entryIndex + cfg.maxHoldingBars - 1, candles1H.length - 1);
+
+  for (let j = entryIndex; j <= lastIndex; j++) {
+    const candle = candles1H[j];
+    const hitStop = direction === "BUY" ? candle.low <= stopLoss : candle.high >= stopLoss;
+    const hitTarget = direction === "BUY" ? candle.high >= takeProfit : candle.low <= takeProfit;
+
+    // 同じ足で両方に触れた場合、足の中の到達順は1H足からは判別できない。
+    // 成績を楽観的に見積もらないよう損切り側を採用する。
+    if (hitStop) {
+      return buildTrade(direction, candles1H, entryIndex, j, entryPrice, stopLoss, stopLoss, takeProfit, "stop_loss", confidence, cfg);
+    }
+    if (hitTarget) {
+      return buildTrade(direction, candles1H, entryIndex, j, entryPrice, takeProfit, stopLoss, takeProfit, "take_profit", confidence, cfg);
+    }
+  }
+
+  const exitIndex = lastIndex;
+  const reason: ExitReason =
+    exitIndex >= candles1H.length - 1 && exitIndex < entryIndex + cfg.maxHoldingBars - 1
+      ? "end_of_data"
+      : "timeout";
+  return buildTrade(
+    direction, candles1H, entryIndex, exitIndex, entryPrice,
+    candles1H[exitIndex].close, stopLoss, takeProfit, reason, confidence, cfg,
+  );
+}
+
+function buildTrade(
+  direction: Exclude<SignalType, "WAIT">,
+  candles1H: OHLC[],
+  entryIndex: number,
+  exitIndex: number,
+  entryPrice: number,
+  exitPrice: number,
+  stopLoss: number,
+  takeProfit: number,
+  exitReason: ExitReason,
+  confidence: number,
+  cfg: BacktestConfig,
+): Trade {
+  const sign = direction === "BUY" ? 1 : -1;
+  const rawPips = ((exitPrice - entryPrice) * sign) / cfg.pipSize;
+
+  return {
+    direction,
+    entryTime: candles1H[entryIndex].timestamp,
+    entryPrice,
+    exitTime: candles1H[exitIndex].timestamp,
+    exitPrice,
+    stopLoss,
+    takeProfit,
+    pips: rawPips - cfg.spreadPips,
+    exitReason,
+    holdingBars: exitIndex - entryIndex + 1,
+    confidence,
+    session: getTimeSessionFromTimestamp(candles1H[entryIndex].timestamp),
+  };
+}
+
+// ============================================================
+// 集計
+// ============================================================
+
+export function summarize(trades: Trade[]): BacktestStats {
+  const wins = trades.filter((t) => t.pips > 0);
+  const losses = trades.filter((t) => t.pips <= 0);
+
+  const grossProfit = wins.reduce((sum, t) => sum + t.pips, 0);
+  const grossLoss = Math.abs(losses.reduce((sum, t) => sum + t.pips, 0));
+  const netPips = grossProfit - grossLoss;
+
+  // 累積損益の山からの落ち込みを追う
+  let peak = 0;
+  let cumulative = 0;
+  let maxDrawdown = 0;
+  for (const trade of trades) {
+    cumulative += trade.pips;
+    if (cumulative > peak) peak = cumulative;
+    maxDrawdown = Math.max(maxDrawdown, peak - cumulative);
+  }
+
+  return {
+    trades: trades.length,
+    wins: wins.length,
+    losses: losses.length,
+    winRate: trades.length === 0 ? 0 : (wins.length / trades.length) * 100,
+    netPips,
+    grossProfitPips: grossProfit,
+    grossLossPips: grossLoss,
+    profitFactor: grossLoss === 0 ? (grossProfit > 0 ? Infinity : 0) : grossProfit / grossLoss,
+    expectancyPips: trades.length === 0 ? 0 : netPips / trades.length,
+    maxDrawdownPips: maxDrawdown,
+    averageHoldingBars:
+      trades.length === 0
+        ? 0
+        : trades.reduce((sum, t) => sum + t.holdingBars, 0) / trades.length,
+    byDirection: {
+      BUY: directionStats(trades.filter((t) => t.direction === "BUY")),
+      SELL: directionStats(trades.filter((t) => t.direction === "SELL")),
+    },
+  };
+}
+
+function directionStats(trades: Trade[]): DirectionStats {
+  const wins = trades.filter((t) => t.pips > 0);
+  const grossProfit = wins.reduce((sum, t) => sum + t.pips, 0);
+  const grossLoss = Math.abs(
+    trades.filter((t) => t.pips <= 0).reduce((sum, t) => sum + t.pips, 0),
+  );
+
+  return {
+    trades: trades.length,
+    wins: wins.length,
+    winRate: trades.length === 0 ? 0 : (wins.length / trades.length) * 100,
+    netPips: grossProfit - grossLoss,
+    profitFactor: grossLoss === 0 ? (grossProfit > 0 ? Infinity : 0) : grossProfit / grossLoss,
+  };
+}
