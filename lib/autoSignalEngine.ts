@@ -94,6 +94,8 @@ export interface SignalResult {
     nearSR: boolean;
     timeSession: TimeSession;
     timeReliability: number;
+    /** SELL A型スコア（0-1）。BUYが成立した場合は算出されないので0 */
+    sellScore: number;
     ema20: number;
     ema200: number;
     currentPrice: number;
@@ -648,6 +650,7 @@ export function generateSignal(
       nearSR: srCheck.near,
       timeSession,
       timeReliability,
+      sellScore: sellScoreValue,
       ema20: currentEma20,
       ema200: currentEma200,
       currentPrice,
