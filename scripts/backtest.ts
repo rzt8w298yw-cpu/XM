@@ -14,6 +14,7 @@ import {
   type BacktestStats,
   type Trade,
 } from "../lib/backtest";
+import { inspectCandles, parseCandleCsv } from "../lib/csv";
 import { DEFAULT_THRESHOLDS, type SignalThresholds } from "../lib/autoSignalEngine";
 import { fetchMarketData, getSymbolSpec } from "../lib/marketData";
 import type { OHLC } from "../lib/technicalAnalysis";
@@ -81,47 +82,23 @@ function parseArgs(argv: string[]): Args {
   };
 }
 
-/** `timestamp,open,high,low,close` のCSVを読む */
-function loadCsv(path: string): OHLC[] {
-  const lines = readFileSync(path, "utf8").trim().split(/\r?\n/);
-  if (lines.length < 2) throw new Error(`${path}: データ行がありません`);
-
-  const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
-  const index = (name: string) => {
-    const i = header.indexOf(name);
-    if (i === -1) throw new Error(`${path}: 列 "${name}" が見つかりません`);
-    return i;
-  };
-  const [ti, oi, hi, li, ci] = [
-    index("timestamp"), index("open"), index("high"), index("low"), index("close"),
-  ];
-
-  const candles: OHLC[] = [];
-  for (let row = 1; row < lines.length; row++) {
-    const cols = lines[row].split(",");
-    const timestamp = parseTimestamp(cols[ti]?.trim() ?? "");
-    const values = [oi, hi, li, ci].map((i) => Number(cols[i]));
-    if (timestamp === null || values.some((v) => !Number.isFinite(v))) continue;
-    candles.push({
-      timestamp,
-      open: values[0], high: values[1], low: values[2], close: values[3],
-    });
+/** ローソク足CSVを読む。形式の判別は lib/csv.ts に任せる */
+function loadCsv(path: string, label: string, expectedStepMs: number): OHLC[] {
+  let result;
+  try {
+    result = parseCandleCsv(readFileSync(path, "utf8"));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${path}: ${message}`);
   }
 
-  candles.sort((a, b) => a.timestamp - b.timestamp);
-  if (candles.length === 0) throw new Error(`${path}: 有効な行がありません`);
-  return candles;
-}
-
-function parseTimestamp(raw: string): number | null {
-  if (raw === "") return null;
-  if (/^\d+$/.test(raw)) {
-    const n = Number(raw);
-    // 10桁ならエポック秒、13桁ならミリ秒
-    return raw.length <= 10 ? n * 1000 : n;
+  if (result.skipped > 0) {
+    console.log(`  ${label}: ${result.skipped}行を読み飛ばしました（数値として解釈できない行）`);
   }
-  const parsed = Date.parse(raw);
-  return Number.isNaN(parsed) ? null : parsed;
+  for (const note of inspectCandles(result.candles, expectedStepMs)) {
+    console.log(`  ${label}: ${note}`);
+  }
+  return result.candles;
 }
 
 async function main() {
@@ -133,8 +110,9 @@ async function main() {
   let source: string;
 
   if (args.csv1H && args.csvDaily) {
-    candles1H = loadCsv(args.csv1H);
-    candlesDaily = loadCsv(args.csvDaily);
+    console.log("CSVを読み込んでいます…");
+    candles1H = loadCsv(args.csv1H, "1H足", 3_600_000);
+    candlesDaily = loadCsv(args.csvDaily, "日足", 24 * 3_600_000);
     source = `CSV (${args.csv1H} / ${args.csvDaily})`;
   } else if (args.csv1H || args.csvDaily) {
     throw new Error("--csv-1h と --csv-daily は両方指定してください");

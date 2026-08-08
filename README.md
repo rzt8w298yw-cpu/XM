@@ -15,7 +15,7 @@ npm run dev      # http://localhost:3000
 ```bash
 npm run build      # 本番ビルド
 npm start          # 本番サーバー起動
-npm test           # テスト（30件）
+npm test           # テスト（74件）
 npm run typecheck  # 型チェック
 ```
 
@@ -26,6 +26,8 @@ npm run typecheck  # 型チェック
 | `lib/technicalAnalysis.ts` | EMA / RSI / ATR / ボリンジャーバンド / MACD、ダウ理論、サポレジ、ダイバージェンス、ローソク足パターン、セッション判定 |
 | `lib/autoSignalEngine.ts` | 15条件の判定とシグナル生成（`generateSignal`） |
 | `lib/marketData.ts` | 相場データ取得と上位足への集約 |
+| `lib/backtest.ts` | バックテストのシミュレーションと集計 |
+| `lib/csv.ts` | MT4 / MT5 などのローソク足CSVの読み込み |
 | `lib/tradePlan.ts` | ATRベースの損切り / 利確計算 |
 | `app/api/signal/route.ts` | シグナルAPI |
 | `components/` | ダッシュボードUI（チャートは外部ライブラリなしのSVG） |
@@ -102,9 +104,25 @@ npm run backtest -- --csv-1h data/usdjpy_1h.csv --csv-daily data/usdjpy_1d.csv
 
 ### CSVの形式
 
-`timestamp,open,high,low,close` のヘッダ付きCSV。timestampはISO文字列でも
-エポック秒/ミリ秒でも読めます。1H足はEMA200のウォームアップに1000本以上、
-日足は210本以上必要です。
+MT4 / MT5 のエクスポートをそのまま読めます。判別は自動です。
+
+- 区切り文字: カンマ / タブ / セミコロン
+- ヘッダ: `<DATE>` のような山括弧付き、`timestamp` `datetime` などの別名、ヘッダ無しも可
+- 日付と時刻: 別列（MT5の `<DATE>` + `<TIME>`）でも1列にまとまっていても可
+- 日付区切り: `2024.01.15` `2024/01/15` `2024-01-15`、エポック秒/ミリ秒も可
+
+MT5からの出し方: チャートを開いて `F2`（気配値 → 銘柄 → バー）でエクスポート、
+または「ファイル」→「データフォルダを開く」から `history` を書き出します。
+1H足と日足の両方が必要です。
+
+**タイムゾーンに注意。** 時刻にタイムゾーン表記が無い場合はUTCとして扱います。
+MT5のサーバー時刻は多くがEET（UTC+2、夏時間はUTC+3）なので、そのまま渡すと
+セッション判定（ロンドン / ニューヨーク）が2〜3時間ずれます。ずれたまま流すと
+セッションフィルターの効き方が変わるので、事前にUTCへ直してください。
+
+読み込み時に、同じ時刻の重複・時間の飛び・高値安値の矛盾を点検して報告します。
+
+必要な本数は1H足が1000本以上（EMA200のウォームアップ）、日足が210本以上です。
 
 ### 実データについて
 
