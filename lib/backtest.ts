@@ -258,6 +258,84 @@ function buildTrade(
 }
 
 // ============================================================
+// 対照実験: ランダムエントリー
+// ============================================================
+
+/**
+ * 同じ値動きに対してランダムにエントリーした場合の成績を出す。
+ *
+ * 戦略の数値だけを見ても、それが値動きの構造を捉えた結果なのか、
+ * 単に「損切り1に対して利確2」の賭けを繰り返した結果なのかは区別できない。
+ * エントリー本数・損切り幅・利確幅・取引セッションを戦略側と揃えたうえで
+ * 入る場所だけを乱数にすることで、その差分を見る。
+ */
+export function runRandomEntryControl(
+  candles1H: OHLC[],
+  atrSeries: number[],
+  tradeCount: number,
+  seed: number,
+  config: Partial<BacktestConfig> = {},
+): BacktestResult {
+  const cfg = { ...DEFAULT_BACKTEST_CONFIG, ...config };
+  const rand = mulberry32(seed);
+  const trades: Trade[] = [];
+
+  const firstBar = Math.max(cfg.windowSize, 250);
+  // 戦略と同じくロンドン・NY時間だけを候補にする
+  const candidates: number[] = [];
+  for (let i = firstBar; i < candles1H.length - 1; i++) {
+    const atr = atrSeries[i];
+    if (atr === undefined || atr <= 0) continue;
+    const session = getTimeSessionFromTimestamp(candles1H[i].timestamp);
+    if (session !== "LONDON" && session !== "NY") continue;
+    candidates.push(i);
+  }
+  if (candidates.length === 0) {
+    return { trades, barsInPosition: 0, barsEvaluated: 0, stats: summarize(trades) };
+  }
+
+  const used: { from: number; to: number }[] = [];
+  let attempts = 0;
+  const maxAttempts = tradeCount * 200;
+
+  while (trades.length < tradeCount && attempts < maxAttempts) {
+    attempts++;
+    const index = candidates[Math.floor(rand() * candidates.length)];
+    // 保有期間が既存のトレードと重ならないようにする（同時1ポジション）
+    if (used.some((span) => index >= span.from && index <= span.to)) continue;
+
+    const direction = rand() < 0.5 ? "BUY" : "SELL";
+    const trade = simulateTrade(candles1H, index, direction, atrSeries[index], 0, cfg);
+    if (!trade) continue;
+
+    const span = { from: index, to: index + trade.holdingBars };
+    if (used.some((other) => span.from <= other.to && other.from <= span.to)) continue;
+
+    used.push(span);
+    trades.push(trade);
+  }
+
+  trades.sort((a, b) => a.entryTime - b.entryTime);
+  return {
+    trades,
+    barsInPosition: 0,
+    barsEvaluated: candidates.length,
+    stats: summarize(trades),
+  };
+}
+
+function mulberry32(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// ============================================================
 // 集計
 // ============================================================
 

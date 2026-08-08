@@ -1,0 +1,170 @@
+/**
+ * シグナル通知
+ *
+ * 判定は毎回走るが、通知は「前回と変わったとき」だけ出す。
+ * BUYが続いている間ずっと鳴り続けると通知の意味が無くなるため、
+ * 状態の遷移（WAIT→BUY など）を検出して初めて送る。
+ *
+ * 送信先はWebhook（Discord / Slack）を既定にしているが、`Notifier` を
+ * 差し替えればLINEでもメールでも同じ仕組みで使える。
+ */
+import type { SignalResult, SignalType } from "./autoSignalEngine";
+import type { TradePlan } from "./tradePlan";
+
+/** 銘柄ごとに最後に通知した状態 */
+export interface SignalState {
+  [symbolId: string]: {
+    signal: SignalType;
+    /** 最後に判定した1H足の時刻 */
+    barTime: number;
+  };
+}
+
+export type NotificationKind = "entry" | "cleared";
+
+export interface Notification {
+  kind: NotificationKind;
+  symbolId: string;
+  symbolLabel: string;
+  signal: SignalType;
+  previousSignal: SignalType;
+  title: string;
+  body: string;
+}
+
+export interface EvaluationInput {
+  symbolId: string;
+  symbolLabel: string;
+  digits: number;
+  pipSize: number;
+  result: SignalResult;
+  tradePlan: TradePlan | null;
+  /** 判定に使った最新1H足の時刻 */
+  barTime: number;
+}
+
+/**
+ * 前回の状態と比べて、送るべき通知を決める。
+ * 状態は書き換えず、次に保存すべき状態を一緒に返す（送信に失敗したら
+ * 呼び出し側が保存を見送り、次回もう一度試せるようにするため）。
+ */
+export function diffSignals(
+  previous: SignalState,
+  evaluations: EvaluationInput[],
+): { notifications: Notification[]; nextState: SignalState } {
+  const nextState: SignalState = { ...previous };
+  const notifications: Notification[] = [];
+
+  for (const evaluation of evaluations) {
+    const before = previous[evaluation.symbolId];
+    const previousSignal = before?.signal ?? "WAIT";
+    const current = evaluation.result.signal;
+
+    nextState[evaluation.symbolId] = {
+      signal: current,
+      barTime: evaluation.barTime,
+    };
+
+    if (current === previousSignal) continue;
+
+    if (current === "BUY" || current === "SELL") {
+      notifications.push({
+        kind: "entry",
+        symbolId: evaluation.symbolId,
+        symbolLabel: evaluation.symbolLabel,
+        signal: current,
+        previousSignal,
+        title: `${evaluation.symbolLabel} ${current}`,
+        body: formatEntryBody(evaluation),
+      });
+    } else if (previousSignal === "BUY" || previousSignal === "SELL") {
+      notifications.push({
+        kind: "cleared",
+        symbolId: evaluation.symbolId,
+        symbolLabel: evaluation.symbolLabel,
+        signal: current,
+        previousSignal,
+        title: `${evaluation.symbolLabel} ${previousSignal} 解除`,
+        body: `${previousSignal} の条件を満たさなくなりました（現在 WAIT）。`,
+      });
+    }
+  }
+
+  return { notifications, nextState };
+}
+
+function formatEntryBody(evaluation: EvaluationInput): string {
+  const { result, tradePlan, digits, pipSize } = evaluation;
+  const a = result.analysis;
+
+  const lines = [
+    `価格 ${a.currentPrice.toFixed(digits)}　信頼度 ${result.confidence}%`,
+    `1H ${a.trend1H} / 4H ${a.trend4H} / 日足 ${a.trendDaily}　${a.timeSession}`,
+    `RSI ${a.currentRSI.toFixed(1)}　ATR ${(a.currentATR / pipSize).toFixed(1)} pips`,
+  ];
+
+  if (tradePlan) {
+    lines.push(
+      `損切り ${tradePlan.stopLoss.toFixed(digits)} (${tradePlan.stopPips.toFixed(1)} pips) / ` +
+        `利確 ${tradePlan.takeProfit.toFixed(digits)} (${tradePlan.targetPips.toFixed(1)} pips)`,
+    );
+  }
+
+  const met = result.conditions.filter((c) => c.met).length;
+  lines.push(`条件 ${met}/${result.conditions.length} 充足`);
+
+  return lines.join("\n");
+}
+
+/** 通知の送信先 */
+export interface Notifier {
+  send(notification: Notification): Promise<void>;
+}
+
+/**
+ * Discord と Slack の両方に対応したWebhook送信。
+ *
+ * Discordは `content`、Slackは `text` を読む。両方入れて送ると、
+ * それぞれが自分の知っているキーだけを使うので、URLを差し替えるだけで
+ * どちらでも動く。
+ */
+export function createWebhookNotifier(url: string): Notifier {
+  return {
+    async send(notification) {
+      const emoji =
+        notification.kind === "cleared" ? "⚪" : notification.signal === "BUY" ? "🟢" : "🔴";
+      const message = `${emoji} **${notification.title}**\n${notification.body}`;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15_000);
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: message, text: message }),
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          const detail = await response.text().catch(() => "");
+          throw new Error(
+            `Webhookが HTTP ${response.status} を返しました${detail ? `: ${detail.slice(0, 200)}` : ""}`,
+          );
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+  };
+}
+
+/** 送信せず標準出力に書くだけの通知先。動作確認用 */
+export function createConsoleNotifier(): Notifier {
+  return {
+    async send(notification) {
+      console.log(`[通知] ${notification.title}`);
+      console.log(
+        notification.body.split("\n").map((line) => `        ${line}`).join("\n"),
+      );
+    },
+  };
+}

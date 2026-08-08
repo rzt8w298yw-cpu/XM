@@ -15,7 +15,7 @@ npm run dev      # http://localhost:3000
 ```bash
 npm run build      # 本番ビルド
 npm start          # 本番サーバー起動
-npm test           # テスト（74件）
+npm test           # テスト（86件）
 npm run typecheck  # 型チェック
 ```
 
@@ -28,6 +28,7 @@ npm run typecheck  # 型チェック
 | `lib/marketData.ts` | 相場データ取得と上位足への集約 |
 | `lib/backtest.ts` | バックテストのシミュレーションと集計 |
 | `lib/csv.ts` | MT4 / MT5 などのローソク足CSVの読み込み |
+| `lib/notifier.ts` | シグナルの状態遷移の検出と通知の送信 |
 | `lib/tradePlan.ts` | ATRベースの損切り / 利確計算 |
 | `app/api/signal/route.ts` | シグナルAPI |
 | `components/` | ダッシュボードUI（チャートは外部ライブラリなしのSVG） |
@@ -130,6 +131,59 @@ MT5のサーバー時刻は多くがEET（UTC+2、夏時間はUTC+3）なので�
 合成データにフォールバックしますが、**合成データはランダムウォークなので再現可能な
 優位性が存在せず、出てくる数値は基盤の動作確認にしかなりません。**
 戦略の評価には必ず実データを使ってください（実行時にも警告が出ます）。
+
+## シグナル通知
+
+シグナルが出たときに Discord / Slack へ通知します。
+
+```bash
+export SIGNAL_WEBHOOK_URL="https://discord.com/api/webhooks/..."
+
+npm run watch                                    # 5分ごとに判定（常駐）
+npm run watch -- --once                          # 1回だけ判定（cron / GitHub Actions 用）
+npm run watch -- --symbols USDJPY,GBPJPY --interval 300
+npm run watch -- --once --allow-synthetic        # Webhookの疎通確認
+```
+
+Webhookのペイロードには `content`（Discordが読む）と `text`（Slackが読む）の両方を
+入れているので、URLを差し替えるだけでどちらでも動きます。`SIGNAL_WEBHOOK_URL` が
+未設定なら標準出力に出力します。LINEやメールに送りたい場合は `lib/notifier.ts` の
+`Notifier` インターフェースを実装して差し替えてください。
+
+### 通知が鳴る条件
+
+**前回の判定から状態が変わったときだけ**送ります。BUYが続いている間ずっと鳴ると
+通知の意味が無くなるためです。
+
+| 前回 | 今回 | 通知 |
+| --- | --- | --- |
+| WAIT | BUY / SELL | エントリー通知（価格・損切り・利確・信頼度つき） |
+| BUY | SELL | エントリー通知（反転） |
+| BUY / SELL | WAIT | 解除通知 |
+| 同じ状態の継続 | | 通知しない |
+
+状態は `--state` のファイル（既定 `.signal-state.json`）に保存します。cronで回す場合も
+このファイルが引き継がれる場所を指定してください。**送信に失敗したときは状態を進めない**
+ので、次回の実行で再送を試みます。
+
+**実データを取得できないときは通知しません。** 合成データのシグナルを通知すると
+実際の相場と誤認する危険があるためです。Webhookの設定を確認したいだけの場合は
+`--allow-synthetic` を使ってください（通知本文に「テスト」が入ります）。
+
+### 実行場所
+
+`--once` があるので、常駐でもcronでも同じスクリプトが使えます。
+
+```bash
+# 常駐（VPS・自宅PC）
+npm run watch -- --interval 300
+
+# cron: 平日のロンドン・NY時間（JST 16時〜翌2時 = UTC 7時〜17時）に5分ごと
+*/5 7-17 * * 1-5 cd /path/to/XM && npm run watch -- --once --state /var/lib/xm/state.json
+```
+
+判定はロンドン（JST 16-21時）とNY（JST 21-翌2時）以外では必ずWAITになるので、
+それ以外の時間帯に回しても通知は出ません。
 
 ## 判定ロジックの概要
 
