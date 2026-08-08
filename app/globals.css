@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #0a0e17;
+  color: #e5e9f0;
+  font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans",
+    "Noto Sans JP", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 数値の桁が揃うと価格やスコアが読みやすい */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
