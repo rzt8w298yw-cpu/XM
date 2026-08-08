@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SignalType } from "@/lib/autoSignalEngine";
 import type { SignalApiResponse } from "@/lib/types";
+import { describeCandleAge } from "@/lib/marketData";
 import ConditionList from "./ConditionList";
 import PriceChart from "./PriceChart";
 
@@ -305,11 +306,40 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
               1H {data.candleCounts.h1}本 / 4H {data.candleCounts.h4}本 / 8H{" "}
               {data.candleCounts.h8}本 / 日足 {data.candleCounts.daily}本
             </span>
-            {updatedAt && <span>最終更新: {updatedAt.toLocaleTimeString("ja-JP")}</span>}
+            <span className="flex flex-wrap gap-3">
+              <Freshness latestCandleTime={data.latestCandleTime} />
+              {updatedAt && <span>取得: {updatedAt.toLocaleTimeString("ja-JP")}</span>}
+            </span>
           </footer>
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * 最新1H足がいつのものかを出す。
+ * リアルタイム運用では「今の判定が古い足で出ていないか」が分からないと危ないので、
+ * 足の鮮度を数字で見せる。1H足なので通常は0〜60分前になり、
+ * 2時間以上あいている場合は取得が止まっているか市場が閉じている。
+ */
+function Freshness({ latestCandleTime }: { latestCandleTime: number | null }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  if (latestCandleTime === null) return null;
+
+  const { label, stale } = describeCandleAge(latestCandleTime, now);
+
+  return (
+    <span className={stale ? "text-amber-400" : undefined}>
+      最新の1H足: {label}
+      {stale && "（更新が止まっているか市場が閉じています）"}
+    </span>
   );
 }
 

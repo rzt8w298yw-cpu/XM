@@ -299,3 +299,23 @@ function mulberry32(seed: number): () => number {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+/**
+ * 最新の足がどれくらい前のものかを文章にする。
+ *
+ * リアルタイム運用では「今の判定が古い足で出ていないか」が分からないと危ない。
+ * 1H足なので通常は0〜60分前に収まり、それを大きく超える場合は取得が
+ * 止まっているか市場が閉じている。
+ */
+export function describeCandleAge(
+  latestCandleTime: number,
+  now: number,
+  staleAfterMinutes = 120,
+): { minutes: number; label: string; stale: boolean } {
+  const minutes = Math.max(0, Math.floor((now - latestCandleTime) / 60_000));
+  const label =
+    minutes < 60
+      ? `${minutes}分前`
+      : `${Math.floor(minutes / 60)}時間${minutes % 60}分前`;
+  return { minutes, label, stale: minutes >= staleAfterMinutes };
+}
