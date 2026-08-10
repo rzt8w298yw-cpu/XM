@@ -228,6 +228,8 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
                 <Stat label="20EMA" value={data.analysis.ema20.toFixed(data.digits)} />
                 <Stat label="200EMA" value={data.analysis.ema200.toFixed(data.digits)} />
               </dl>
+
+              {data.signal === "WAIT" && <WaitFrequencyNote />}
             </div>
 
             <div className="space-y-4">
@@ -385,6 +387,40 @@ function Freshness({ latestCandleTime }: { latestCandleTime: number | null }) {
       最新の1H足: {label}
       {stale && "（更新が止まっているか市場が閉じています）"}
     </span>
+  );
+}
+
+/**
+ * WAITが続くのは壊れているからではない、と言うための注記。
+ *
+ * 数字は合成系列8本・22,416時間ぶんの判定を数えたもの（`_rev_freq` の計測）。
+ * WAIT以外になったのは1.40%（BUY 123 / SELL 190）で、出ている時間は
+ * 平均1.4時間、間隔は平均103時間だった。
+ *
+ * これを黙っていると、画面が何日もWAITのままなのを見た人は取得が
+ * 止まっていると考える。そして、たまたま開いた1回で判定が出ていない
+ * ことをもって「使えない」と結論する。実際には、見に来る使い方では
+ * ほとんど取り逃す頻度でしか出ない、というのがこの戦略の性質になる。
+ */
+function WaitFrequencyNote() {
+  return (
+    <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950/40 p-4 text-xs leading-relaxed text-slate-400">
+      <p className="font-semibold text-slate-300">WAITが続くのは正常です</p>
+      <p className="mt-1.5">
+        合成データで22,416時間ぶんを判定したところ、WAIT以外になったのは
+        <span className="tabular text-slate-200"> 1.4% </span>
+        だけでした。1銘柄あたり平均
+        <span className="tabular text-slate-200"> 4.3日に1回</span>
+        、出ている時間は平均
+        <span className="tabular text-slate-200"> 1.4時間 </span>
+        です。
+      </p>
+      <p className="mt-1.5">
+        この頻度だと、画面を見に来る使い方ではほとんど取り逃します。
+        <code className="rounded bg-slate-800/70 px-1 py-0.5 text-slate-300">npm run watch</code>
+        で通知を受け取る運用を前提にしてください。
+      </p>
+    </div>
   );
 }
 
