@@ -15,6 +15,13 @@ import {
   type Trade,
 } from "../lib/backtest";
 import { inspectCandles, parseCandleCsv } from "../lib/csv";
+import {
+  buildEquityCurve,
+  calculateConcentration,
+  calculateStreaks,
+  renderSparkline,
+  splitByPeriod,
+} from "../lib/equityCurve";
 import { DEFAULT_THRESHOLDS, type SignalThresholds } from "../lib/autoSignalEngine";
 import { fetchMarketData, getSymbolSpec } from "../lib/marketData";
 import type { OHLC } from "../lib/technicalAnalysis";
@@ -180,6 +187,7 @@ async function main() {
     console.log(`保有中スキップ: ${result.barsInPosition}本`);
     console.log("");
     printStats(result.stats);
+    printQuality(result.trades);
     printRecentTrades(result.trades, spec.digits);
   }
 }
@@ -232,6 +240,53 @@ function printSweepTable(rows: { label: string; stats: BacktestStats }[]) {
   console.log(line(header));
   console.log(widths.map((w) => "-".repeat(w)).join("  "));
   for (const row of body) console.log(line(row));
+}
+
+/**
+ * 損益の合計だけでは、一定して積み上がったのか一度の大勝ちに
+ * 支えられているのかが分からない。その区別がつく情報を出す。
+ */
+function printQuality(trades: Trade[]) {
+  if (trades.length < 2) return;
+
+  const curve = buildEquityCurve(trades);
+  const streaks = calculateStreaks(trades);
+  const concentration = calculateConcentration(trades);
+
+  console.log("");
+  console.log("資産曲線（縦軸は自動スケール）");
+  for (const row of renderSparkline(curve, 64, 8)) {
+    console.log("  " + row);
+  }
+  const last = curve[curve.length - 1];
+  console.log(`  0件目 ${fmt(0)} pips 〜 ${trades.length}件目 ${fmt(last.equity)} pips`);
+
+  console.log("");
+  console.log(`最大連勝 ${streaks.longestWin} / 最大連敗 ${streaks.longestLoss}`);
+  console.log(`最大の負け ${fmt(concentration.worstLoss)} pips`);
+  console.log(
+    `総利益に占める最大の勝ち ${fmt(concentration.topWinShare)}%` +
+      `（上位3件で ${fmt(concentration.top3WinShare)}%）`,
+  );
+  if (concentration.topWinShare > 40) {
+    console.log("  ※ 利益が一部のトレードに偏っています。その相場が来なければ成立しません");
+  }
+
+  const segments = splitByPeriod(trades, 4);
+  if (segments.length > 1) {
+    console.log("");
+    console.log("期間ごとの偏り:");
+    for (const segment of segments) {
+      console.log(
+        `  ${segment.label.padEnd(14)} ${String(segment.trades).padStart(3)}件  ` +
+          `勝率 ${fmt(segment.winRate).padStart(5)}%  ${fmt(segment.netPips).padStart(8)} pips`,
+      );
+    }
+    const positive = segments.filter((s) => s.netPips > 0).length;
+    if (positive <= segments.length / 2) {
+      console.log("  ※ 一部の期間だけで稼いでいます。相場付きが変わると崩れる可能性があります");
+    }
+  }
 }
 
 function printRecentTrades(trades: Trade[], digits: number) {

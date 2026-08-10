@@ -304,6 +304,25 @@ const MUTATIONS: Mutation[] = [
     find: "  if (input.accountBalance <= 0) return null;",
     replace: "  if (false) return null;",
   },
+  // --- 資産曲線 ---
+  {
+    description: "資産曲線: 最高値の更新をしない（ドローダウンが常に0）",
+    file: "lib/equityCurve.ts",
+    find: "    if (equity > peak) peak = equity;",
+    replace: "    peak = equity;",
+  },
+  {
+    description: "連敗: 勝ちで連敗をリセットしない",
+    file: "lib/equityCurve.ts",
+    find: "      currentWin++;\n      currentLoss = 0;",
+    replace: "      currentWin++;",
+  },
+  {
+    description: "偏り: 勝ちの降順ソートをやめる（最大の勝ちを取り違える）",
+    file: "lib/equityCurve.ts",
+    find: "  const wins = trades.filter((t) => t.pips > 0).map((t) => t.pips).sort((a, b) => b - a);",
+    replace: "  const wins = trades.filter((t) => t.pips > 0).map((t) => t.pips);",
+  },
   // --- CSV ---
   {
     description: "CSV: 空セルを0として受け入れる",
