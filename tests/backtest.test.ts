@@ -263,3 +263,46 @@ describe("runBacktest", () => {
     expect(result.stats.trades).toBe(0);
   });
 });
+
+describe("時間決済（useStops: false）", () => {
+  /** 上げ続ける足。損切りには触れず、利確には触れる */
+  const rising: OHLC[] = Array.from({ length: 40 }, (_, i) => ({
+    timestamp: i * 3_600_000,
+    open: 100 + i,
+    high: 100 + i + 0.5,
+    low: 100 + i - 0.5,
+    close: 100 + i + 0.4,
+  }));
+
+  const base = {
+    pipSize: 0.01,
+    spreadPips: 0,
+    stopSlippagePips: 0,
+    windowSize: 10,
+    atrStopMultiplier: 1.5,
+    riskRewardRatio: 2,
+    maxHoldingBars: 5,
+  };
+
+  it("損切り・利確を使わず、指定した本数後の終値で決済する", () => {
+    const trade = simulateTrade(rising, 10, "BUY", 1, 50, { ...base, useStops: false });
+    expect(trade).not.toBeNull();
+    expect(trade!.exitReason).toBe("timeout");
+    expect(trade!.holdingBars).toBe(5);
+    // エントリーは11本目の始値、決済は15本目の終値
+    expect(trade!.entryPrice).toBeCloseTo(rising[11].open, 10);
+    expect(trade!.exitPrice).toBeCloseTo(rising[15].close, 10);
+  });
+
+  it("既定では損切り・利確を使う", () => {
+    const withStops = simulateTrade(rising, 10, "BUY", 1, 50, base);
+    expect(withStops!.exitReason).toBe("take_profit");
+  });
+
+  it("時間決済でも滑りは差し引く", () => {
+    const trade = simulateTrade(rising, 10, "BUY", 1, 50, {
+      ...base, useStops: false, stopSlippagePips: 2,
+    });
+    expect(trade!.exitPrice).toBeCloseTo(rising[15].close - 2 * 0.01, 10);
+  });
+});

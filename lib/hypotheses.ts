@@ -451,6 +451,33 @@ export const turnOfMonth: EntryRule = {
   },
 };
 
+/**
+ * 月初に、前月と**逆**の方向に入る。
+ *
+ * ⚠ これは事後に見つけたものです。順張り版（turn_of_month）を試したら
+ * 逆に効いていたので、符号を反転させただけ。**先に立てた仮説ではありません。**
+ *
+ * 決済を外した計測で、月初のシグナルの5日後リターンが12ペア中9ペアで
+ * マイナスでした（学習期間 -0.092 ATR / 検証期間 -0.156 ATR）。ただし
+ * 学習期間では p=0.109 で有意ではなく、1日後の効果は学習期間で強く
+ * （p=0.001）検証期間で消えています（p=0.951）。
+ *
+ * 月末のリバランスで動いた分が翌月に戻る、という説明はつきます。
+ * ただし符号を反転させた時点で、この12ペア・この期間はもう検証に使えません。
+ * 確かめるには**この標本の外**のデータが要ります。
+ */
+export const turnOfMonthReversal: EntryRule = {
+  id: "turn_of_month_reversal",
+  name: "月初の逆張り（事後発見）",
+  idea: "月が変わった最初の営業日に、前月と逆の方向へ入る",
+  timeframe: "daily",
+  decide(ctx) {
+    const direction = turnOfMonth.decide(ctx);
+    if (direction === null) return null;
+    return direction === "BUY" ? "SELL" : "BUY";
+  },
+};
+
 export const DAILY_RULES: EntryRule[] = [
   donchian20,
   donchian55,
@@ -459,6 +486,7 @@ export const DAILY_RULES: EntryRule[] = [
   rsi2Pullback,
   insideBarBreak,
   turnOfMonth,
+  turnOfMonthReversal,
 ];
 
 export const ALL_RULES: EntryRule[] = [...HOURLY_RULES, ...DAILY_RULES];

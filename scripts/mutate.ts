@@ -427,6 +427,49 @@ const MUTATIONS: Mutation[] = [
     find: "    if (month === prevMonth) return null;",
     replace: "    const nextMonth = candles[i + 1] ? new Date(candles[i + 1].timestamp).getUTCMonth() : month;\n    if (nextMonth === month) return null;",
   },
+  // --- 月初の効果（標本の外での検証） ---
+  {
+    description: "月初: 判定を翌営業日の月から求める（先読み）",
+    file: "lib/monthEffect.ts",
+    find: "  return dates[i].slice(0, 7) !== dates[i - 1].slice(0, 7);",
+    replace: "  return dates[i + 1] !== undefined && dates[i + 1].slice(0, 7) !== dates[i].slice(0, 7);",
+  },
+  {
+    description: "月初: 前月と逆ではなく順方向に入る",
+    file: "lib/monthEffect.ts",
+    find: "    const sign = previousMove > 0 ? -1 : 1;",
+    replace: "    const sign = previousMove > 0 ? 1 : -1;",
+  },
+  {
+    description: "月初: リターンをばらつきで割らない（大きく動く通貨に引きずられる）",
+    file: "lib/monthEffect.ts",
+    find: "    const scaled = forward / (volatility * Math.sqrt(hold));",
+    replace: "    const scaled = forward;",
+  },
+  {
+    description: "月初: hold日後ではなく hold+5日後の値を使う（先読み）",
+    file: "lib/monthEffect.ts",
+    find: "    const forward = Math.log(values[i + hold] / values[i]);",
+    replace: "    const forward = Math.log((values[i + hold + 5] ?? values[i + hold]) / values[i]);",
+  },
+  {
+    description: "並べ替え検定: 向きを入れ替えず常に元のまま足す（p値が0になる）",
+    file: "lib/monthEffect.ts",
+    find: "    for (let i = 0; i < raw.length; i++) total += rand() < 0.5 ? raw[i] : -raw[i];",
+    replace: "    for (let i = 0; i < raw.length; i++) total += raw[i];",
+  },
+  {
+    description: "ばらつき: 標準偏差ではなく分散を返す",
+    file: "lib/monthEffect.ts",
+    find: "  return Math.sqrt(variance);\n}\n\n/** 前の営業日と月が変わっていれば",
+    replace: "  return variance;\n}\n\n/** 前の営業日と月が変わっていれば",
+  },
+  {
+    description: "決済: 時間決済を指定しても損切り・利確を使い続ける",
+    file: "lib/backtest.ts",
+    find: "  const useStops = cfg.useStops !== false;",
+    replace: "  const useStops = true;",
+  },
   // --- CSV ---
   {
     description: "CSV: 空セルを0として受け入れる",

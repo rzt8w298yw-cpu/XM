@@ -4,6 +4,7 @@
  *   npx tsx scripts/hypothesis.ts --timeframe daily --dir data
  *   npx tsx scripts/hypothesis.ts --timeframe daily --dir data --rule donchian20
  *   npx tsx scripts/hypothesis.ts --timeframe hourly --csv data/usdjpy_h1_utc.csv
+ *   npx tsx scripts/hypothesis.ts --timeframe daily --dir data --exit time --max-holding 5
  *
  * 実データで、入り方の異なるルールを同じ土俵に並べる。決済とコストは
  * 既存のバックテストと同じ経路を通すので、差が出るのは入り方だけになる。
@@ -60,6 +61,8 @@ interface Args {
   spreadPips: number;
   stopSlippagePips: number;
   maxHoldingBars: number;
+  /** false なら損切り・利確を使わず、maxHoldingBars 本後の終値で決済する */
+  useStops: boolean;
 }
 
 /** ファイル名から銘柄とpipの大きさを決める。桁を取り違えると損益が10倍ずれる */
@@ -118,6 +121,7 @@ function parseArgs(argv: string[]): Args {
     spreadPips: num("spread", 1.0),
     stopSlippagePips: num("slippage", 0.5),
     maxHoldingBars: num("max-holding", timeframe === "daily" ? 60 : 120),
+    useStops: (map.get("exit") ?? "stops") !== "time",
   };
 }
 
@@ -359,6 +363,7 @@ async function main() {
     atrStopMultiplier: 1.5,
     riskRewardRatio: 2,
     maxHoldingBars: args.maxHoldingBars,
+    useStops: args.useStops,
   };
 
   const datasets: Dataset[] = args.files.map((path) => {
@@ -394,7 +399,9 @@ async function main() {
   console.log(`学習/検証 : ${span(sample.candles, sample.split)} で分割（検証側は選定に使わない）`);
   console.log(
     `コスト    : スプレッド ${args.spreadPips} pips / 滑り ${args.stopSlippagePips} pips / ` +
-      `損切り 1.5ATR / RR 1:2 / 最大保有 ${args.maxHoldingBars}本`,
+      (args.useStops
+        ? `損切り 1.5ATR / RR 1:2 / 最大保有 ${args.maxHoldingBars}本`
+        : `損切り・利確なし / ${args.maxHoldingBars}本後の終値で決済`),
   );
   console.log(`試すルール: ${rules.length}件`);
 

@@ -42,6 +42,15 @@ export interface BacktestConfig {
   windowSize: number;
   /** 決済されないまま保有し続ける上限（1H足の本数） */
   maxHoldingBars: number;
+  /**
+   * 損切り・利確を使うか。false なら maxHoldingBars 本後の終値で決済する。
+   *
+   * 損切りと利確は経路に依存する。行き先が同じでも、途中で損切りに触れば
+   * 負けになる。そのため「エントリーに情報が無い」のか「情報はあるが決済が
+   * 捨てている」のかを、損切りを挟んだ計測では区別できない。
+   * これを false にすると、方向が当たっているかだけを測れる。
+   */
+  useStops?: boolean;
   /** 閾値の上書き */
   thresholds?: Partial<SignalThresholds>;
 }
@@ -264,7 +273,8 @@ export function simulateTrade(
   // maxHoldingBars 本ぶん保有したら打ち切る（エントリー足を1本目と数える）
   const lastIndex = Math.min(entryIndex + cfg.maxHoldingBars - 1, candles1H.length - 1);
 
-  for (let j = entryIndex; j <= lastIndex; j++) {
+  const useStops = cfg.useStops !== false;
+  for (let j = entryIndex; useStops && j <= lastIndex; j++) {
     const candle = candles1H[j];
     const hitStop = direction === "BUY" ? candle.low <= stopLoss : candle.high >= stopLoss;
     const hitTarget = direction === "BUY" ? candle.high >= takeProfit : candle.low <= takeProfit;
