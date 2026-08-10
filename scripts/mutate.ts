@@ -347,6 +347,50 @@ const MUTATIONS: Mutation[] = [
     find: "  const wins = trades.filter((t) => t.pips > 0).map((t) => t.pips).sort((a, b) => b - a);",
     replace: "  const wins = trades.filter((t) => t.pips > 0).map((t) => t.pips);",
   },
+  // --- エントリー仮説 ---
+  {
+    description: "仮説: percentBを1本先の終値で計算する（未来を見る）",
+    file: "lib/hypotheses.ts",
+    find: "    percentB[i] = width === 0 ? 0.5 : (closes[i] - (mean - bbMult * sd)) / width;",
+    replace:
+      "    percentB[i] = width === 0 ? 0.5 : ((closes[i + 1] ?? closes[i]) - (mean - bbMult * sd)) / width;",
+  },
+  {
+    description: "仮説: RSI反転を「またいだ足」ではなく水準で入る",
+    file: "lib/hypotheses.ts",
+    find: "    if (prev <= 30 && now > 30) return \"BUY\";",
+    replace: "    if (now < 30) return \"BUY\";",
+  },
+  {
+    description: "仮説: 素の順張りからEMA20の条件を落とす",
+    file: "lib/hypotheses.ts",
+    find: "    if (now > past && now > e) return \"BUY\";",
+    replace: "    if (now > past) return \"BUY\";",
+  },
+  {
+    description: "仮説: ロンドン開始のブレイクが時間帯を見なくなる",
+    file: "lib/hypotheses.ts",
+    find: "    if (hourUtc[i] !== 7) return null;",
+    replace: "    if (hourUtc[i] === 24) return null;",
+  },
+  {
+    description: "仮説: 東京仲値の戻りが順張りになる（向きを反転）",
+    file: "lib/hypotheses.ts",
+    find: "    return move > 0 ? \"SELL\" : \"BUY\";",
+    replace: "    return move > 0 ? \"BUY\" : \"SELL\";",
+  },
+  {
+    description: "仮説: 押し目買いの判定からRSIの条件を落とす",
+    file: "lib/hypotheses.ts",
+    find: "    if (price > e && r < 40) return \"BUY\";",
+    replace: "    if (price > e) return \"BUY\";",
+  },
+  {
+    description: "仮説: 検証範囲の下限を無視して集計する",
+    file: "lib/hypotheses.ts",
+    find: "  for (let i = Math.max(fromIndex, 250); i < Math.min(toIndex, ctx.candles.length - 1); i++) {",
+    replace: "  for (let i = 250; i < Math.min(toIndex, ctx.candles.length - 1); i++) {",
+  },
   // --- CSV ---
   {
     description: "CSV: 空セルを0として受け入れる",
