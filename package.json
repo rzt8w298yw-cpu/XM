@@ -12,7 +12,8 @@
     "backtest": "tsx scripts/backtest.ts",
     "montecarlo": "tsx scripts/montecarlo.ts",
     "watch": "tsx scripts/watch.ts",
-    "optimize": "tsx scripts/optimize.ts"
+    "optimize": "tsx scripts/optimize.ts",
+    "mutate": "tsx scripts/mutate.ts"
   },
   "dependencies": {
     "next": "^15.5.23",
