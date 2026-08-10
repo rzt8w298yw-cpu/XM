@@ -160,6 +160,8 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
         live region にすると更新のたびに全項目を読み上げてしまう。
       */}
       <main className="space-y-6" aria-busy={loading}>
+        <NoEdgeWarning />
+
         <p className="sr-only" role="status" aria-live="polite">
           {data
             ? `${data.symbolLabel} ${data.signal}　信頼度${data.confidence}%`
@@ -419,6 +421,34 @@ function Freshness({ latestCandleTime }: { latestCandleTime: number | null }) {
  * ことをもって「使えない」と結論する。実際には、見に来る使い方では
  * ほとんど取り逃す頻度でしか出ない、というのがこの戦略の性質になる。
  */
+/**
+ * 実データでの検証結果。
+ *
+ * 画面はBUY/SELLを断定的に出すので、それが何に裏打ちされているかを
+ * 同じ画面に置かないと、判定が根拠のあるものに見えてしまう。
+ * ドル円9年4か月・440トレードで勝率35.0%・PF 1.05、同じ値動きに対する
+ * ランダムエントリー（30.9〜37.3%）と区別がつかなかった。
+ *
+ * この一文を消してよくなるのは、実データで優位性が確認できたときだけ。
+ */
+function NoEdgeWarning() {
+  return (
+    <div className="rounded-lg border border-amber-700/60 bg-amber-950/40 px-4 py-3 text-sm text-amber-100">
+      <p className="font-semibold">
+        この判定ロジックに、実データ上の優位性は確認できていません。
+      </p>
+      <p className="mt-1.5 text-xs leading-relaxed text-amber-200/90">
+        ドル円 2012-11〜2022-03 の440トレードで勝率
+        <span className="tabular"> 35.0% </span>・PF
+        <span className="tabular"> 1.05</span>、最大ドローダウン
+        <span className="tabular"> 1110 pips</span>。エントリーだけをランダムにした
+        対照実験（勝率 30.9〜37.3%）と区別がつきませんでした。
+        表示している売買プランは検証用で、資金を入れる根拠にはなりません。
+      </p>
+    </div>
+  );
+}
+
 function WaitFrequencyNote() {
   return (
     <div className="mt-5 rounded-lg border border-slate-800 bg-slate-950/40 p-4 text-xs leading-relaxed text-slate-400">
