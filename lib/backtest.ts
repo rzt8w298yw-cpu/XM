@@ -101,22 +101,38 @@ export interface DirectionStats {
   profitFactor: number;
 }
 
+/** ある足で出たシグナル。決済条件を変えて何度も試せるよう、判定結果だけを保持する */
+export interface SignalHit {
+  /** candles1H 上のインデックス */
+  index: number;
+  direction: Exclude<SignalType, "WAIT">;
+  atr: number;
+  confidence: number;
+}
+
+export interface SignalScan {
+  hits: SignalHit[];
+  barsEvaluated: number;
+}
+
 /**
- * バックテストを実行する。
- * candles1H は時系列昇順、candlesDaily も昇順であること。
+ * 1H足を前進させながら判定だけを行い、シグナルが出た位置を集める。
+ *
+ * 決済条件（損切り幅・リスクリワード）は判定結果に影響しないので、
+ * 判定と決済を分けておくと、同じ判定結果に対して決済条件だけを何通りも
+ * 試せる。パラメータ探索では判定が支配的に重いので、この分離が効く。
+ *
+ * ポジションの保有で判定をスキップする挙動は決済条件に依存するため、
+ * ここでは行わない（保有の重なりは `simulateFromSignals` 側で解決する）。
  */
-export function runBacktest(
+export function collectSignals(
   candles1H: OHLC[],
   candlesDaily: OHLC[],
   config: Partial<BacktestConfig> = {},
-): BacktestResult {
+): SignalScan {
   const cfg = { ...DEFAULT_BACKTEST_CONFIG, ...config };
-  const trades: Trade[] = [];
-
-  let barsInPosition = 0;
+  const hits: SignalHit[] = [];
   let barsEvaluated = 0;
-  // このインデックスまではポジション保有中なので新規判定しない
-  let occupiedUntil = -1;
 
   // ウォームアップ: 1H足のEMA200と、日足のEMA200が計算できるところから始める
   const firstBar = Math.max(cfg.windowSize, 250);
@@ -125,12 +141,6 @@ export function runBacktest(
     const bar = candles1H[i];
     // 評価中の足が閉じた時刻。ここまでの情報しか使ってはいけない
     const barCloseTime = bar.timestamp + HOUR_MS;
-
-    // ポジション保有中は新規判定しない（同時に1ポジションのみ）
-    if (i <= occupiedUntil) {
-      barsInPosition++;
-      continue;
-    }
 
     const window1H = candles1H.slice(i - cfg.windowSize + 1, i + 1);
     // 確定済みの日足だけを渡す
@@ -148,30 +158,67 @@ export function runBacktest(
     );
 
     if (result.signal === "WAIT") continue;
-
     const atr = result.analysis.currentATR;
     if (atr <= 0) continue;
 
-    const trade = simulateTrade(
-      candles1H,
-      i,
-      result.signal,
+    hits.push({
+      index: i,
+      direction: result.signal,
       atr,
-      result.confidence,
-      cfg,
+      confidence: result.confidence,
+    });
+  }
+
+  return { hits, barsEvaluated };
+}
+
+/**
+ * 集めたシグナルを、指定の決済条件で順にトレードにしていく。
+ * 保有中に出たシグナルは見送る（同時に1ポジションのみ）。
+ */
+export function simulateFromSignals(
+  scan: SignalScan,
+  candles1H: OHLC[],
+  config: Partial<BacktestConfig> = {},
+): BacktestResult {
+  const cfg = { ...DEFAULT_BACKTEST_CONFIG, ...config };
+  const trades: Trade[] = [];
+
+  let barsInPosition = 0;
+  let occupiedUntil = -1;
+
+  for (const hit of scan.hits) {
+    if (hit.index <= occupiedUntil) continue;
+
+    const trade = simulateTrade(
+      candles1H, hit.index, hit.direction, hit.atr, hit.confidence, cfg,
     );
     if (!trade) continue;
 
     trades.push(trade);
-    occupiedUntil = i + trade.holdingBars;
+    barsInPosition += trade.holdingBars;
+    occupiedUntil = hit.index + trade.holdingBars;
   }
 
   return {
     trades,
     barsInPosition,
-    barsEvaluated,
+    barsEvaluated: scan.barsEvaluated,
     stats: summarize(trades),
   };
+}
+
+/**
+ * バックテストを実行する。
+ * candles1H は時系列昇順、candlesDaily も昇順であること。
+ */
+export function runBacktest(
+  candles1H: OHLC[],
+  candlesDaily: OHLC[],
+  config: Partial<BacktestConfig> = {},
+): BacktestResult {
+  const scan = collectSignals(candles1H, candlesDaily, config);
+  return simulateFromSignals(scan, candles1H, config);
 }
 
 /**

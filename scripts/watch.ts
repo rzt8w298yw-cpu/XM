@@ -18,6 +18,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { generateSignal } from "../lib/autoSignalEngine";
 import { fetchMarketData, getSymbolSpec, SYMBOLS } from "../lib/marketData";
 import { buildTradePlan } from "../lib/tradePlan";
+import { loadStrategyConfig, type StrategyConfig } from "../lib/strategyConfig";
 import {
   createConsoleNotifier,
   createWebhookNotifier,
@@ -102,6 +103,7 @@ function saveState(path: string, state: SignalState): void {
 async function evaluateAll(
   symbolIds: string[],
   allowSynthetic: boolean,
+  strategy: StrategyConfig,
 ): Promise<EvaluationInput[]> {
   const evaluations: EvaluationInput[] = [];
 
@@ -117,6 +119,7 @@ async function evaluateAll(
 
       const result = generateSignal(
         market.candles1H, market.candles4H, market.candlesDaily, market.candles8H,
+        { thresholds: strategy.thresholds },
       );
       evaluations.push({
         symbolId: spec.id,
@@ -127,6 +130,10 @@ async function evaluateAll(
         result,
         tradePlan: buildTradePlan(
           result.signal, result.analysis.currentPrice, result.analysis.currentATR, spec.pipSize,
+          {
+            atrStopMultiplier: strategy.atrStopMultiplier,
+            riskRewardRatio: strategy.riskRewardRatio,
+          },
         ),
         barTime: market.candles1H.at(-1)?.timestamp ?? Date.now(),
       });
@@ -139,9 +146,9 @@ async function evaluateAll(
   return evaluations;
 }
 
-async function runOnce(args: Args, notifier: Notifier): Promise<void> {
+async function runOnce(args: Args, notifier: Notifier, strategy: StrategyConfig): Promise<void> {
   const stamp = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
-  const evaluations = await evaluateAll(args.symbols, args.allowSynthetic);
+  const evaluations = await evaluateAll(args.symbols, args.allowSynthetic, strategy);
 
   const summary = evaluations
     .map((e) => `${e.symbolId}=${e.result.signal}`)
@@ -178,6 +185,8 @@ async function runOnce(args: Args, notifier: Notifier): Promise<void> {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const webhookUrl = process.env.SIGNAL_WEBHOOK_URL;
+  const { config: strategy, overrides, warnings } = loadStrategyConfig();
+  for (const warning of warnings) console.warn(`戦略設定: ${warning}`);
 
   const notifier =
     args.dryRun || !webhookUrl ? createConsoleNotifier() : createWebhookNotifier(webhookUrl);
@@ -192,11 +201,14 @@ async function main() {
   }
   console.log(`状態ファイル: ${args.statePath}`);
   console.log(
+    overrides.length > 0 ? `戦略設定  : ${overrides.join(" ")}` : "戦略設定  : 既定値",
+  );
+  console.log(
     args.once ? "1回だけ判定します。" : `${args.intervalSeconds}秒ごとに判定します（Ctrl+Cで終了）。`,
   );
 
   if (args.once) {
-    await runOnce(args, notifier);
+    await runOnce(args, notifier, strategy);
     return;
   }
 
@@ -209,7 +221,7 @@ async function main() {
 
   // 起動直後に1回走らせ、以降は間隔をあけて繰り返す
   while (!stopping) {
-    await runOnce(args, notifier);
+    await runOnce(args, notifier, strategy);
     await new Promise((resolve) => setTimeout(resolve, args.intervalSeconds * 1000));
   }
 }

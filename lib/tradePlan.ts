@@ -5,6 +5,7 @@
  * ストップの距離が自動で伸縮する。利確はリスクリワード比から逆算する。
  */
 import type { SignalType } from "./autoSignalEngine";
+import { DEFAULT_STRATEGY } from "./strategyConfig";
 
 export interface TradePlan {
   entry: number;
@@ -15,19 +16,25 @@ export interface TradePlan {
   riskRewardRatio: number;
 }
 
-const ATR_STOP_MULTIPLIER = 1.5;
-const RISK_REWARD_RATIO = 2;
+export interface TradePlanOptions {
+  atrStopMultiplier: number;
+  riskRewardRatio: number;
+}
 
 export function buildTradePlan(
   signal: SignalType,
   price: number,
   atr: number,
   pipSize: number,
+  options: TradePlanOptions = {
+    atrStopMultiplier: DEFAULT_STRATEGY.atrStopMultiplier,
+    riskRewardRatio: DEFAULT_STRATEGY.riskRewardRatio,
+  },
 ): TradePlan | null {
   if (signal === "WAIT" || atr <= 0 || pipSize <= 0) return null;
 
-  const stopDistance = atr * ATR_STOP_MULTIPLIER;
-  const targetDistance = stopDistance * RISK_REWARD_RATIO;
+  const stopDistance = atr * options.atrStopMultiplier;
+  const targetDistance = stopDistance * options.riskRewardRatio;
   const direction = signal === "BUY" ? 1 : -1;
 
   return {
@@ -36,6 +43,6 @@ export function buildTradePlan(
     takeProfit: price + targetDistance * direction,
     stopPips: stopDistance / pipSize,
     targetPips: targetDistance / pipSize,
-    riskRewardRatio: RISK_REWARD_RATIO,
+    riskRewardRatio: options.riskRewardRatio,
   };
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { generateSignal } from "@/lib/autoSignalEngine";
 import { fetchMarketData, getSymbolSpec, SYMBOLS } from "@/lib/marketData";
 import { buildTradePlan } from "@/lib/tradePlan";
+import { loadStrategyConfig } from "@/lib/strategyConfig";
 
 // 毎リクエスト最新のレートを取りに行くのでキャッシュしない
 export const dynamic = "force-dynamic";
@@ -20,18 +21,26 @@ export async function GET(request: Request) {
   const spec = getSymbolSpec(requested);
 
   try {
+    const { config: strategy, warnings } = loadStrategyConfig();
+    for (const warning of warnings) console.warn(`戦略設定: ${warning}`);
+
     const market = await fetchMarketData(spec.id);
     const result = generateSignal(
       market.candles1H,
       market.candles4H,
       market.candlesDaily,
       market.candles8H,
+      { thresholds: strategy.thresholds },
     );
     const tradePlan = buildTradePlan(
       result.signal,
       result.analysis.currentPrice,
       result.analysis.currentATR,
       spec.pipSize,
+      {
+        atrStopMultiplier: strategy.atrStopMultiplier,
+        riskRewardRatio: strategy.riskRewardRatio,
+      },
     );
 
     return NextResponse.json({
