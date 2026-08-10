@@ -37,6 +37,7 @@ import {
   type BBSignal,
   type MACDSignal,
 } from "./technicalAnalysis";
+import { checkEconomicCalendar, type EconomicEvent } from "./economicCalendar";
 
 /**
  * 1H足データを8H足に集約
@@ -183,6 +184,11 @@ export interface GenerateSignalOptions {
   spreadPips?: number;
   /** 許容する最大スプレッド（pips） */
   maxSpreadPips?: number;
+  /**
+   * 実際の経済指標の発表予定。渡さない場合は主要指標の定例時刻から推定する
+   * （推定である旨は条件の表示に残る）。
+   */
+  economicEvents?: EconomicEvent[];
 }
 
 /**
@@ -419,27 +425,18 @@ export function generateSignal(
   });
 
   // 12. 経済指標
-  // リアルタイムカレンダーAPIは未接続のため、定期的な重要指標発表時間帯（JST）で推定。
-  // 主要な重要指標発表時間（JST）: 21:30 米国雇用統計/CPI/GDP, 03:00 FOMC, 12:00 日銀
-  const evalDate = new Date(options?.overrideTimestamp ?? Date.now());
-  const jstHour = (evalDate.getUTCHours() + 9) % 24;
-  const jstMinute = evalDate.getUTCMinutes();
-  const totalMinutes = jstHour * 60 + jstMinute;
-  // 重要指標発表前後30分は危険時間帯としてマーク
-  const dangerWindows = [
-    21 * 60 + 30, // 米国雇用統計/CPI/GDP
-    3 * 60,       // FOMC
-    12 * 60,      // 日銀
-    22 * 60,      // ISM
-  ];
-  const nearIndicator = dangerWindows.some(w => Math.abs(totalMinutes - w) <= 30 || Math.abs(totalMinutes - w + 1440) <= 30);
-  const economicOk = !nearIndicator;
+  // 実際の発表予定が渡されればそれを使い、無ければ定例時刻から推定する。
+  // 推定であることは表示に残す（実スケジュールとはズレるため）。
+  const calendar = checkEconomicCalendar(
+    options?.overrideTimestamp ?? Date.now(),
+    options?.economicEvents,
+  );
   conditions.push({
     id: "economic_filter",
     name: "経済指標",
     category: "filter",
-    met: economicOk,
-    value: economicOk ? "指標発表なし（推定）" : "指標発表前後30分（注意）",
+    met: calendar.ok,
+    value: calendar.description,
     weight: 3,
   });
 

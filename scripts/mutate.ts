@@ -266,6 +266,25 @@ const MUTATIONS: Mutation[] = [
     find: "  const ok = spreadPips <= maxSpreadPips;",
     replace: "  const ok = true;",
   },
+  // --- 経済指標カレンダー ---
+  {
+    description: "カレンダー: 実予定があっても推定に落とす",
+    file: "lib/economicCalendar.ts",
+    find: "  if (events && events.length > 0) {",
+    replace: "  if (false) {",
+  },
+  {
+    description: "カレンダー: 発表前は避けず発表後だけ避ける",
+    file: "lib/economicCalendar.ts",
+    find: "    const near = events.find((e) => Math.abs(e.timestamp - atTime) <= windowMs);",
+    replace: "    const near = events.find((e) => atTime - e.timestamp >= 0 && atTime - e.timestamp <= windowMs);",
+  },
+  {
+    description: "カレンダー: 日付をまたぐ距離を見ない",
+    file: "lib/economicCalendar.ts",
+    find: "    if (Math.min(direct, wrapped) <= avoidMinutes) {",
+    replace: "    if (direct <= avoidMinutes) {",
+  },
   // --- CSV ---
   {
     description: "CSV: 空セルを0として受け入れる",
