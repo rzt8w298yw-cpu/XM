@@ -143,8 +143,7 @@ export function collectSignals(
     const barCloseTime = bar.timestamp + HOUR_MS;
 
     const window1H = candles1H.slice(i - cfg.windowSize + 1, i + 1);
-    // 確定済みの日足だけを渡す
-    const dailyClosed = candlesDaily.filter((d) => d.timestamp + DAY_MS <= barCloseTime);
+    const dailyClosed = closedDailyCandles(candlesDaily, barCloseTime);
     if (dailyClosed.length < 210) continue;
 
     barsEvaluated++;
@@ -170,6 +169,17 @@ export function collectSignals(
   }
 
   return { hits, barsEvaluated };
+}
+
+/**
+ * その時刻までに「確定済み」の日足だけを返す。
+ *
+ * 形成中の日足を渡すと、まだ確定していない終値でトレンドを判定することになり、
+ * 未来の情報が判定に混入する。バックテストの成績を実際より良く見せる典型的な
+ * 経路なので、切り出して単体で検証できるようにしてある。
+ */
+export function closedDailyCandles(candlesDaily: OHLC[], atTime: number): OHLC[] {
+  return candlesDaily.filter((d) => d.timestamp + DAY_MS <= atTime);
 }
 
 /**
