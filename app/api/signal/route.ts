@@ -3,6 +3,7 @@ import { generateSignal } from "@/lib/autoSignalEngine";
 import { fetchMarketData, getSymbolSpec, SYMBOLS } from "@/lib/marketData";
 import { buildTradePlan } from "@/lib/tradePlan";
 import { loadStrategyConfig } from "@/lib/strategyConfig";
+import { buildLotPlan } from "@/lib/lotPlan";
 
 // 毎リクエスト最新のレートを取りに行くのでキャッシュしない
 export const dynamic = "force-dynamic";
@@ -43,6 +44,17 @@ export async function GET(request: Request) {
       },
     );
 
+    // 口座残高が設定されていればロットも出す。pipsは金額ではないので、
+    // これが無いとリスクの実際の大きさが分からない
+    const lotPlan = tradePlan
+      ? buildLotPlan({
+          spec,
+          stopDistancePips: tradePlan.stopPips,
+          accountBalance: strategy.accountBalance,
+          riskPercent: strategy.riskPercent,
+        })
+      : null;
+
     return NextResponse.json({
       symbol: spec.id,
       symbolLabel: spec.label,
@@ -58,6 +70,7 @@ export async function GET(request: Request) {
       },
       latestCandleTime: market.candles1H.at(-1)?.timestamp ?? null,
       tradePlan,
+      lotPlan,
       ...result,
     });
   } catch (error) {

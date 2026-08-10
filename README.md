@@ -203,10 +203,21 @@ npm run optimize -- --csv-1h data/usdjpy_1h.csv --csv-daily data/usdjpy_1d.csv -
 | `SIGNAL_SELL_RSI_MIN` | `30` | これ以下のRSIではSELLを出さない |
 | `TRADE_ATR_STOP` | `1.5` | 損切り幅 = ATR × この倍率 |
 | `TRADE_RISK_REWARD` | `2` | 利確幅 = 損切り幅 × この倍率 |
+| `ACCOUNT_BALANCE` | `0` | 口座残高。設定するとロット数を計算して表示します |
+| `RISK_PERCENT` | `2` | 1トレードで許容する損失の割合（%） |
 
 ```bash
 TRADE_ATR_STOP=2 TRADE_RISK_REWARD=1.5 npm run dev
+ACCOUNT_BALANCE=1000000 RISK_PERCENT=2 npm run dev   # ロットも表示する
 ```
+
+`ACCOUNT_BALANCE` を設定すると、損切り幅から逆算したロット数と、損切りに達した
+場合の損失額が売買プランに出ます。損切りが広い局面では自動的にロットが小さくなり、
+1トレードで失う金額が一定に保たれます。
+
+**口座通貨と決済通貨が異なる場合は換算レートが必要です。** 円口座でEUR/USDを
+扱う場合など、レートが渡されなければロットを計算せず理由を表示します
+（推測すると実際のリスクがずれるため）。
 
 範囲外や数値でない値は**無視して警告を出します**。黙って既定値に落ちると、
 設定したつもりで効いていない状態に気づけないためです。

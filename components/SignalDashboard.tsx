@@ -253,10 +253,33 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
                       label="リスクリワード"
                       value={`1 : ${data.tradePlan.riskRewardRatio}`}
                     />
+                    {data.lotPlan && data.lotPlan.lots > 0 && (
+                      <>
+                        <PlanRow
+                          label="ロット"
+                          value={`${data.lotPlan.lots.toFixed(2)} lot`}
+                        />
+                        <PlanRow
+                          label="損切り時の損失"
+                          value={`${Math.round(data.lotPlan.actualLossAtStop).toLocaleString("ja-JP")}（残高の${data.lotPlan.actualRiskPercent.toFixed(2)}%）`}
+                        />
+                      </>
+                    )}
                   </dl>
                 ) : (
                   <p className="mt-3 text-sm text-slate-400">
                     WAIT のためプランはありません。
+                  </p>
+                )}
+                {data.lotPlan && data.lotPlan.warnings.length > 0 && (
+                  <p className="mt-3 text-xs text-amber-300/90">
+                    {data.lotPlan.warnings.join(" / ")}
+                  </p>
+                )}
+                {data.tradePlan && !data.lotPlan && (
+                  <p className="mt-3 text-xs text-slate-500">
+                    ロットを出すには環境変数 ACCOUNT_BALANCE を設定してください
+                    （pipsは金額ではないため、リスクの大きさが分かりません）。
                   </p>
                 )}
               </div>

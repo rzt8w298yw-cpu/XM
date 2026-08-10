@@ -20,16 +20,21 @@ export interface SymbolSpec {
   digits: number;
   /** 合成データの基準価格 */
   basePrice: number;
+  /**
+   * 決済通貨。ロット計算でpip価値を求める際、口座通貨と違えば換算が要る。
+   * 例: USDJPY の決済通貨は JPY
+   */
+  quoteCurrency: string;
 }
 
 export const SYMBOLS: SymbolSpec[] = [
-  { id: "USDJPY", label: "USD/JPY", yahoo: "USDJPY=X", pipSize: 0.01, digits: 3, basePrice: 155.0 },
-  { id: "EURUSD", label: "EUR/USD", yahoo: "EURUSD=X", pipSize: 0.0001, digits: 5, basePrice: 1.08 },
-  { id: "GBPUSD", label: "GBP/USD", yahoo: "GBPUSD=X", pipSize: 0.0001, digits: 5, basePrice: 1.27 },
-  { id: "EURJPY", label: "EUR/JPY", yahoo: "EURJPY=X", pipSize: 0.01, digits: 3, basePrice: 167.0 },
-  { id: "GBPJPY", label: "GBP/JPY", yahoo: "GBPJPY=X", pipSize: 0.01, digits: 3, basePrice: 197.0 },
-  { id: "AUDUSD", label: "AUD/USD", yahoo: "AUDUSD=X", pipSize: 0.0001, digits: 5, basePrice: 0.65 },
-  { id: "XAUUSD", label: "GOLD (XAU/USD)", yahoo: "XAUUSD=X", pipSize: 0.1, digits: 2, basePrice: 2600.0 },
+  { id: "USDJPY", label: "USD/JPY", yahoo: "USDJPY=X", pipSize: 0.01, digits: 3, basePrice: 155.0, quoteCurrency: "JPY" },
+  { id: "EURUSD", label: "EUR/USD", yahoo: "EURUSD=X", pipSize: 0.0001, digits: 5, basePrice: 1.08, quoteCurrency: "USD" },
+  { id: "GBPUSD", label: "GBP/USD", yahoo: "GBPUSD=X", pipSize: 0.0001, digits: 5, basePrice: 1.27, quoteCurrency: "USD" },
+  { id: "EURJPY", label: "EUR/JPY", yahoo: "EURJPY=X", pipSize: 0.01, digits: 3, basePrice: 167.0, quoteCurrency: "JPY" },
+  { id: "GBPJPY", label: "GBP/JPY", yahoo: "GBPJPY=X", pipSize: 0.01, digits: 3, basePrice: 197.0, quoteCurrency: "JPY" },
+  { id: "AUDUSD", label: "AUD/USD", yahoo: "AUDUSD=X", pipSize: 0.0001, digits: 5, basePrice: 0.65, quoteCurrency: "USD" },
+  { id: "XAUUSD", label: "GOLD (XAU/USD)", yahoo: "XAUUSD=X", pipSize: 0.1, digits: 2, basePrice: 2600.0, quoteCurrency: "USD" },
 ];
 
 export function getSymbolSpec(id: string): SymbolSpec {

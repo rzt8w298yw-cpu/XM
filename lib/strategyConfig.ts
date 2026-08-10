@@ -16,12 +16,21 @@ export interface StrategyConfig {
   atrStopMultiplier: number;
   /** 利確幅 = 損切り幅 × この倍率 */
   riskRewardRatio: number;
+  /**
+   * 口座残高（口座通貨建て）。0ならロット計算をしない。
+   * pipsは金額ではないので、これが無いとリスクの大きさが分からない
+   */
+  accountBalance: number;
+  /** 1トレードで許容する損失の割合（%） */
+  riskPercent: number;
 }
 
 export const DEFAULT_STRATEGY: StrategyConfig = {
   thresholds: DEFAULT_THRESHOLDS,
   atrStopMultiplier: 1.5,
   riskRewardRatio: 2,
+  accountBalance: 0,
+  riskPercent: 2,
 };
 
 /** 環境変数名と、その値が満たすべき範囲 */
@@ -32,6 +41,8 @@ const NUMERIC_SETTINGS = {
   SIGNAL_SELL_RSI_MIN: { min: 0, max: 99 },
   TRADE_ATR_STOP: { min: 0.1, max: 10 },
   TRADE_RISK_REWARD: { min: 0.1, max: 20 },
+  ACCOUNT_BALANCE: { min: 0, max: 1_000_000_000_000 },
+  RISK_PERCENT: { min: 0.01, max: 100 },
 } as const;
 
 type SettingName = keyof typeof NUMERIC_SETTINGS;
@@ -84,6 +95,8 @@ export function loadStrategyConfig(
     },
     atrStopMultiplier: read("TRADE_ATR_STOP", DEFAULT_STRATEGY.atrStopMultiplier),
     riskRewardRatio: read("TRADE_RISK_REWARD", DEFAULT_STRATEGY.riskRewardRatio),
+    accountBalance: read("ACCOUNT_BALANCE", DEFAULT_STRATEGY.accountBalance),
+    riskPercent: read("RISK_PERCENT", DEFAULT_STRATEGY.riskPercent),
   };
 
   // BUYの下限がSELLの下限を上回るような組み合わせ自体は成立するので、
