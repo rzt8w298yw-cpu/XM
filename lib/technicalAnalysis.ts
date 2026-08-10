@@ -467,13 +467,44 @@ export function getATRStatus(atrSeries: number[], currentATR: number): ATRStatus
   return "normal";
 }
 
+export interface SpreadCheck {
+  /** スプレッドを評価できたか。できない場合は判定に使ってはいけない */
+  available: boolean;
+  /** 許容範囲内か。available が false のときは意味を持たない */
+  ok: boolean;
+  /** 表示用の説明 */
+  description: string;
+}
+
 /**
  * スプレッド判定。
- * ブローカーからの実スプレッド配信が無いため、価格が有効かどうかのサニティチェックのみ。
- * 実運用ではブローカーAPIのbid/askに置き換える。
+ *
+ * ローソク足からは実スプレッドを知る術がない。以前はここが常に true を返して
+ * おり、条件が無条件で成立してスコアを底上げしていた。評価できないものを
+ * 「満たした」と数えるのは誤りなので、実測値が渡されない限り available=false
+ * を返し、呼び出し側でスコアの対象から外す。
+ *
+ * 実運用ではブローカーのbid/askから求めた値を渡すこと。
  */
-export function isSpreadNormal(price: number): boolean {
-  return Number.isFinite(price) && price > 0;
+export function checkSpread(
+  spreadPips: number | null | undefined,
+  maxSpreadPips: number,
+): SpreadCheck {
+  if (spreadPips === null || spreadPips === undefined || !Number.isFinite(spreadPips)) {
+    return {
+      available: false,
+      ok: false,
+      description: "実スプレッド未取得（判定から除外）",
+    };
+  }
+  const ok = spreadPips <= maxSpreadPips;
+  return {
+    available: true,
+    ok,
+    description: ok
+      ? `${spreadPips.toFixed(1)} pips（上限 ${maxSpreadPips}）`
+      : `${spreadPips.toFixed(1)} pips — 上限 ${maxSpreadPips} を超過`,
+  };
 }
 
 // ============================================================

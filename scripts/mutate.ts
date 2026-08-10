@@ -247,6 +247,25 @@ const MUTATIONS: Mutation[] = [
     find: "    histogramPrev: macdPrev - signalPrev,",
     replace: "    histogramPrev: macd - signal,",
   },
+  // --- スコア計算 ---
+  {
+    description: "スコア: 評価できない条件も分母に数える",
+    file: "lib/autoSignalEngine.ts",
+    find: "    if (condition.available === false) continue;",
+    replace: "    if (false) continue;",
+  },
+  {
+    description: "スプレッド: 未取得でも評価済みとして扱う",
+    file: "lib/technicalAnalysis.ts",
+    find: "      available: false,\n      ok: false,\n      description: \"実スプレッド未取得（判定から除外）\",",
+    replace: "      available: true,\n      ok: true,\n      description: \"実スプレッド未取得（判定から除外）\",",
+  },
+  {
+    description: "スプレッド: 上限との比較を常に真にする",
+    file: "lib/technicalAnalysis.ts",
+    find: "  const ok = spreadPips <= maxSpreadPips;",
+    replace: "  const ok = true;",
+  },
   // --- CSV ---
   {
     description: "CSV: 空セルを0として受け入れる",

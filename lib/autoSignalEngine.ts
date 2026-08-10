@@ -19,7 +19,7 @@ import {
   getTimeSessionFromTimestamp,
   getTimeSessionReliability,
   getATRStatus,
-  isSpreadNormal,
+  checkSpread,
   calculateBollingerBands,
   analyzeBollingerBands,
   calculateMACD,
@@ -65,6 +65,35 @@ export interface ConditionResult {
   met: boolean;
   value: string;
   weight: number; // 重要度 1-3
+  /**
+   * 判定に必要な情報が揃っているか。false の条件はスコアの分子からも
+   * 分母からも外す。評価できないものを「満たした」と数えると、
+   * その分だけスコアが底上げされてしまう。
+   */
+  available?: boolean;
+}
+
+/**
+ * 重み付きスコア。評価できない条件は分母からも外す。
+ * どの条件が使えたかで分母が変わるので、達成重みと合計重みも返す。
+ */
+export function weightedScore(conditions: ConditionResult[]): {
+  ratio: number;
+  metWeight: number;
+  totalWeight: number;
+} {
+  let metWeight = 0;
+  let totalWeight = 0;
+  for (const condition of conditions) {
+    if (condition.available === false) continue;
+    totalWeight += condition.weight;
+    if (condition.met) metWeight += condition.weight;
+  }
+  return {
+    ratio: totalWeight === 0 ? 0 : metWeight / totalWeight,
+    metWeight,
+    totalWeight,
+  };
 }
 
 export interface ChartDataPoint {
@@ -147,6 +176,13 @@ export interface GenerateSignalOptions {
   overrideTimestamp?: number;
   /** 閾値の上書き（指定した項目だけ差し替わる） */
   thresholds?: Partial<SignalThresholds>;
+  /**
+   * ブローカーから取得した実スプレッド（pips）。
+   * 渡さない場合、スプレッド条件は判定から除外される。
+   */
+  spreadPips?: number;
+  /** 許容する最大スプレッド（pips） */
+  maxSpreadPips?: number;
 }
 
 /**
@@ -227,7 +263,8 @@ export function generateSignal(
   const pullbackDetected = isPullback(currentPrice, currentEma20, currentEma200, trend1H, currentATR);
 
   // === スプレッド ===
-  const spreadOk = isSpreadNormal(currentPrice);
+  // ローソク足からは実スプレッドを知れない。渡されなければ判定から外す
+  const spread = checkSpread(options?.spreadPips, options?.maxSpreadPips ?? 3);
 
   // ===== 13条件の判定 =====
   const conditions: ConditionResult[] = [];
@@ -411,9 +448,10 @@ export function generateSignal(
     id: "spread_filter",
     name: "スプレッド",
     category: "filter",
-    met: spreadOk,
-    value: spreadOk ? "通常範囲" : "拡大中（注意）",
+    met: spread.ok,
+    value: spread.description,
     weight: 1,
+    available: spread.available,
   });
 
   // ===== BB + MACD 計算 =====
@@ -563,9 +601,7 @@ export function generateSignal(
   // ===== BUYスコアフィルター（改善案1: 閾値65%） =====
   // BUYのみ重み付きスコアでフィルタリング（SELLは独自スコアで判定済み）
   if (signal === "BUY") {
-    const preFilterWeight = conditions.filter(c => c.met).reduce((sum, c) => sum + c.weight, 0);
-    const totalWeightPre = conditions.reduce((sum, c) => sum + c.weight, 0);
-    const weightedScoreRatio = preFilterWeight / totalWeightPre;
+    const weightedScoreRatio = weightedScore(conditions).ratio;
     if (weightedScoreRatio < thresholds.buyScoreMin) {
       signal = "WAIT"; // BUYスコアが下限未満は除外（改善案1）
     }
@@ -595,9 +631,7 @@ export function generateSignal(
   }
 
   // ===== 信頼度スコア計算 =====
-  const totalWeight = conditions.reduce((sum, c) => sum + c.weight, 0);
-  const metWeight = conditions.filter(c => c.met).reduce((sum, c) => sum + c.weight, 0);
-  const baseScore = Math.round((metWeight / totalWeight) * 100);
+  const baseScore = Math.round(weightedScore(conditions).ratio * 100);
 
   // 時間帯係数
   const timeFactor = timeReliability / 100;
