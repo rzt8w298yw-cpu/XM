@@ -15,3 +15,6 @@ next-env.d.ts
 *.log
 npm-debug.log*
 .signal-state.json
+
+# 検証用の使い捨てスクリプト（先頭が _）
+_*.ts
