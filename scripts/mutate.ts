@@ -162,6 +162,91 @@ const MUTATIONS: Mutation[] = [
     find: "if (current === previousSignal) continue;",
     replace: "if (false) continue;",
   },
+  // --- 未検証だった指標 ---
+  {
+    description: "ダウ理論: 高値切り上げの判定を反転",
+    file: "lib/technicalAnalysis.ts",
+    find: "  const higherHigh = h2.price > h1.price;",
+    replace: "  const higherHigh = h2.price < h1.price;",
+  },
+  {
+    description: "ダウ理論: スイング抽出の窓を無視して隣接足だけ見る",
+    file: "lib/technicalAnalysis.ts",
+    find: "  for (let i = window; i < candles.length - window; i++) {",
+    replace: "  for (let i = 1; i < candles.length - 1; i++) {",
+  },
+  {
+    description: "サポレジ: クラスタの許容幅を100倍に広げる",
+    file: "lib/technicalAnalysis.ts",
+    find: "      (c) => Math.abs(c.price - swing.price) / c.price <= clusterTolerance,",
+    replace: "      (c) => Math.abs(c.price - swing.price) / c.price <= clusterTolerance * 100,",
+  },
+  {
+    description: "サポレジ: サポートとレジスタンスの区別を逆にする",
+    file: "lib/technicalAnalysis.ts",
+    find: "      type: (c.price < currentPrice ? \"support\" : \"resistance\") as",
+    replace: "      type: (c.price > currentPrice ? \"support\" : \"resistance\") as",
+  },
+  {
+    description: "サポレジ近接: 許容幅の判定を常に真にする",
+    file: "lib/technicalAnalysis.ts",
+    find: "    if (distance <= tolerance && distance < bestDistance) {",
+    replace: "    if (distance < bestDistance) {",
+  },
+  {
+    description: "ダイバージェンス: 価格とRSIの比較方向を揃えてしまう",
+    file: "lib/technicalAnalysis.ts",
+    find: "  if (lowSecond.price < lowFirst.price && lowSecond.rsi > lowFirst.rsi) {",
+    replace: "  if (lowSecond.price < lowFirst.price && lowSecond.rsi < lowFirst.rsi) {",
+  },
+  {
+    description: "ローソク足: 包み足の実体の大小比較を落とす",
+    file: "lib/technicalAnalysis.ts",
+    find: "  if (isBear(c2) && isBull(c3) && c3.open <= c2.close && c3.close >= c2.open && c3Body > c2Body) {",
+    replace: "  if (isBear(c2) && isBull(c3) && c3.open <= c2.close && c3.close >= c2.open) {",
+  },
+  {
+    description: "ローソク足: ピンバーのヒゲの閾値を半分に緩める",
+    file: "lib/technicalAnalysis.ts",
+    find: "    if (lowerWick >= c3Range * 0.66) return \"pin_bar_bull\";",
+    replace: "    if (lowerWick >= c3Range * 0.33) return \"pin_bar_bull\";",
+  },
+  {
+    description: "押し目: EMAからの距離の判定をATR2倍に緩める",
+    file: "lib/technicalAnalysis.ts",
+    find: "  const nearEMA = distance <= atr;",
+    replace: "  const nearEMA = distance <= atr * 2;",
+  },
+  {
+    description: "押し目: 200EMAとの位置関係を無視する",
+    file: "lib/technicalAnalysis.ts",
+    find: "  if (trend === \"UP\") return nearEMA && price > ema200;",
+    replace: "  if (trend === \"UP\") return nearEMA;",
+  },
+  {
+    description: "ATR状態: 低ボラの閾値を判定しない",
+    file: "lib/technicalAnalysis.ts",
+    find: "  if (ratio < 0.7) return \"low\";",
+    replace: "  if (ratio < 0.0) return \"low\";",
+  },
+  {
+    description: "トレンド判定: 20EMAと200EMAの位置関係を落とす",
+    file: "lib/technicalAnalysis.ts",
+    find: "  if (price > e20 && e20 > e200 && dir20 !== \"falling\") return \"UP\";",
+    replace: "  if (price > e20 && dir20 !== \"falling\") return \"UP\";",
+  },
+  {
+    description: "EMA方向: 傾きの閾値を無視して符号だけで判定",
+    file: "lib/technicalAnalysis.ts",
+    find: "  const threshold = 0.0002;",
+    replace: "  const threshold = 0;",
+  },
+  {
+    description: "MACD: ヒストグラムの前回値を今回値と同じにする",
+    file: "lib/technicalAnalysis.ts",
+    find: "    histogramPrev: macdPrev - signalPrev,",
+    replace: "    histogramPrev: macd - signal,",
+  },
   // --- CSV ---
   {
     description: "CSV: 空セルを0として受け入れる",
