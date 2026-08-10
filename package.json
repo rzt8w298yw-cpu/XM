@@ -13,7 +13,8 @@
     "montecarlo": "tsx scripts/montecarlo.ts",
     "watch": "tsx scripts/watch.ts",
     "optimize": "tsx scripts/optimize.ts",
-    "mutate": "tsx scripts/mutate.ts"
+    "mutate": "tsx scripts/mutate.ts",
+    "reconcile": "tsx scripts/reconcile.ts"
   },
   "dependencies": {
     "next": "^15.5.23",

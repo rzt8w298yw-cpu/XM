@@ -7,6 +7,10 @@
  *   npm run watch -- --dry-run             # 送信せず標準出力に出す
  *   npm run watch -- --once --allow-synthetic  # Webhookの疎通確認（偽のシグナルを送る）
  *
+ * 出したシグナルは --log のファイル（既定 .signal-log.jsonl）に追記する。
+ * 後で `npm run reconcile` を実行すると、実際の値動きと突き合わせて
+ * フォワードテストの成績が出せる。
+ *
  * 通知先は環境変数 SIGNAL_WEBHOOK_URL に Discord か Slack の Webhook URL を入れる。
  * 未設定なら送信せず標準出力に出す。
  *
@@ -23,6 +27,7 @@ import {
   loadSignalState,
   saveSignalState,
 } from "../lib/signalState";
+import { appendSignalRecord } from "../lib/signalLog";
 import {
   createConsoleNotifier,
   createWebhookNotifier,
@@ -36,6 +41,7 @@ interface Args {
   once: boolean;
   intervalSeconds: number;
   statePath: string;
+  logPath: string;
   dryRun: boolean;
   allowSynthetic: boolean;
 }
@@ -83,6 +89,7 @@ function parseArgs(argv: string[]): Args {
     once: flags.has("once"),
     intervalSeconds: interval,
     statePath: map.get("state") ?? ".signal-state.json",
+    logPath: map.get("log") ?? ".signal-log.jsonl",
     dryRun: flags.has("dry-run"),
     allowSynthetic: flags.has("allow-synthetic"),
   };
@@ -159,6 +166,32 @@ async function runOnce(args: Args, notifier: Notifier, strategy: StrategyConfig)
     return;
   }
 
+  // 実際に出したシグナルを記録する。後で `npm run reconcile` で値動きと
+  // 突き合わせ、バックテストの成績と一致するかを確かめるため。
+  // 通知の成否とは切り離す（送信に失敗しても判定した事実は残す）。
+  for (const notification of notifications) {
+    if (notification.kind !== "entry") continue;
+    const evaluation = evaluations.find((e) => e.symbolId === notification.symbolId);
+    if (!evaluation?.tradePlan) continue;
+
+    try {
+      appendSignalRecord(args.logPath, {
+        barTime: evaluation.barTime,
+        recordedAt: Date.now(),
+        symbolId: evaluation.symbolId,
+        signal: notification.signal as "BUY" | "SELL",
+        price: evaluation.tradePlan.entry,
+        stopLoss: evaluation.tradePlan.stopLoss,
+        takeProfit: evaluation.tradePlan.takeProfit,
+        confidence: evaluation.result.confidence,
+        session: evaluation.result.analysis.timeSession,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`シグナルの記録に失敗しました（${notification.title}）: ${message}`);
+    }
+  }
+
   let allSent = true;
   for (const notification of notifications) {
     try {
@@ -196,6 +229,7 @@ async function main() {
     console.warn("--allow-synthetic: 合成データでも通知します。疎通確認専用です。");
   }
   console.log(`状態ファイル: ${args.statePath}`);
+  console.log(`記録ファイル: ${args.logPath}`);
   console.log(
     overrides.length > 0 ? `戦略設定  : ${overrides.join(" ")}` : "戦略設定  : 既定値",
   );
