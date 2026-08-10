@@ -76,7 +76,7 @@ export default function PriceChart({ data, digits }: Props) {
             <text
               x={WIDTH - PADDING.right + 8}
               y={line.yPos + 4}
-              fill="#64748b"
+              fill="#94a3b8"
               fontSize={11}
               className="tabular"
             >
@@ -91,13 +91,13 @@ export default function PriceChart({ data, digits }: Props) {
 
         <circle cx={x(data.length - 1)} cy={y(last.close)} r={4} fill="#e2e8f0" />
 
-        <text x={PADDING.left} y={PRICE_HEIGHT - 6} fill="#64748b" fontSize={11}>
+        <text x={PADDING.left} y={PRICE_HEIGHT - 6} fill="#94a3b8" fontSize={11}>
           {formatTime(first.time)}
         </text>
         <text
           x={WIDTH - PADDING.right}
           y={PRICE_HEIGHT - 6}
-          fill="#64748b"
+          fill="#94a3b8"
           fontSize={11}
           textAnchor="end"
         >
@@ -125,7 +125,7 @@ export default function PriceChart({ data, digits }: Props) {
             <text
               x={WIDTH - PADDING.right + 8}
               y={rsiY(level) + 4}
-              fill="#64748b"
+              fill="#94a3b8"
               fontSize={11}
               className="tabular"
             >
@@ -134,7 +134,7 @@ export default function PriceChart({ data, digits }: Props) {
           </g>
         ))}
         <path d={rsiPath} fill="none" stroke="#a78bfa" strokeWidth={1.8} />
-        <text x={PADDING.left} y={RSI_HEIGHT - 2} fill="#64748b" fontSize={11}>
+        <text x={PADDING.left} y={RSI_HEIGHT - 2} fill="#94a3b8" fontSize={11}>
           RSI(14)
         </text>
       </svg>

@@ -48,9 +48,14 @@ export default function ConditionList({
               {items.map((condition) => (
                 <li
                   key={condition.id}
+                  // 評価対象外は破線の枠で区別する。以前は opacity で
+                  // 薄くしていたが、文字色がコントラスト 2.88:1 まで落ちて
+                  // 読めなくなっていた（4.5:1 が下限）。除外であることは
+                  // 「?」印と「評価対象外」の札で分かるので、薄さに
+                  // 意味を持たせる必要はない。
                   className={`flex items-start gap-3 rounded-lg border px-3 py-2 ${
                     condition.available === false
-                      ? "border-slate-800/60 bg-slate-900/20 opacity-60"
+                      ? "border-dashed border-slate-700 bg-slate-900/20"
                       : condition.met
                         ? "border-emerald-900/60 bg-emerald-950/30"
                         : "border-slate-800 bg-slate-900/40"
@@ -60,10 +65,10 @@ export default function ConditionList({
                     aria-hidden
                     className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
                       condition.available === false
-                        ? "bg-slate-800 text-slate-600"
+                        ? "bg-slate-800 text-slate-300"
                         : condition.met
                           ? "bg-emerald-500/20 text-emerald-300"
-                          : "bg-slate-700/50 text-slate-500"
+                          : "bg-slate-700/50 text-slate-300"
                     }`}
                   >
                     {condition.available === false ? "?" : condition.met ? "✓" : "–"}

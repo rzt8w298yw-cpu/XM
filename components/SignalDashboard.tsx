@@ -154,18 +154,32 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
         </div>
       </header>
 
-      {error && (
-        <div className="rounded-lg border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
-          {error}
-        </div>
-      )}
+      {/*
+        60秒ごとに勝手に書き換わる画面なので、見ていない人には変化が届かない。
+        判定が変わったことだけを読み上げる領域を別に置く。画面全体を
+        live region にすると更新のたびに全項目を読み上げてしまう。
+      */}
+      <main className="space-y-6" aria-busy={loading}>
+        <p className="sr-only" role="status" aria-live="polite">
+          {data
+            ? `${data.symbolLabel} ${data.signal}　信頼度${data.confidence}%`
+            : loading
+              ? "相場データを取得しています"
+              : ""}
+        </p>
 
-      {!data && loading && (
-        <p className="text-sm text-slate-400">相場データを取得しています…</p>
-      )}
+        {error && (
+          <div className="rounded-lg border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">
+            {error}
+          </div>
+        )}
 
-      {data && (
-        <>
+        {!data && loading && (
+          <p className="text-sm text-slate-400">相場データを取得しています…</p>
+        )}
+
+        {data && (
+          <>
           {data.dataSource === "synthetic" && (
             <div className="rounded-lg border border-amber-900/70 bg-amber-950/30 px-4 py-3 text-sm text-amber-200">
               <strong className="font-semibold">合成データで動作中です。</strong>{" "}
@@ -279,7 +293,7 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
                   </p>
                 )}
                 {data.tradePlan && !data.lotPlan && (
-                  <p className="mt-3 text-xs text-slate-500">
+                  <p className="mt-3 text-xs text-slate-400">
                     ロットを出すには環境変数 ACCOUNT_BALANCE を設定してください
                     （pipsは金額ではないため、リスクの大きさが分かりません）。
                   </p>
@@ -342,23 +356,26 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
                 value={data.analysis.nearSR ? "近接あり" : "離れている"}
               />
             </dl>
-            <p className="mt-3 text-xs text-slate-500">
+            <p className="mt-3 text-xs text-slate-400">
               {data.analysis.bbMacdComboReason}
             </p>
           </section>
+          </>
+        )}
+      </main>
 
-          <footer className="flex flex-wrap justify-between gap-2 pb-8 text-xs text-slate-500">
-            <span>
-              データ元: {data.dataSource === "yahoo" ? "Yahoo Finance" : "合成データ"} ・
-              1H {data.candleCounts.h1}本 / 4H {data.candleCounts.h4}本 / 8H{" "}
-              {data.candleCounts.h8}本 / 日足 {data.candleCounts.daily}本
-            </span>
-            <span className="flex flex-wrap gap-3">
-              <Freshness latestCandleTime={data.latestCandleTime} />
-              {updatedAt && <span>取得: {updatedAt.toLocaleTimeString("ja-JP")}</span>}
-            </span>
-          </footer>
-        </>
+      {data && (
+        <footer className="flex flex-wrap justify-between gap-2 pb-8 text-xs text-slate-400">
+          <span>
+            データ元: {data.dataSource === "yahoo" ? "Yahoo Finance" : "合成データ"} ・
+            1H {data.candleCounts.h1}本 / 4H {data.candleCounts.h4}本 / 8H{" "}
+            {data.candleCounts.h8}本 / 日足 {data.candleCounts.daily}本
+          </span>
+          <span className="flex flex-wrap gap-3">
+            <Freshness latestCandleTime={data.latestCandleTime} />
+            {updatedAt && <span>取得: {updatedAt.toLocaleTimeString("ja-JP")}</span>}
+          </span>
+        </footer>
       )}
     </div>
   );
@@ -427,7 +444,7 @@ function WaitFrequencyNote() {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs text-slate-500">{label}</dt>
+      <dt className="text-xs text-slate-400">{label}</dt>
       <dd className="tabular mt-0.5 font-medium text-slate-100">{value}</dd>
     </div>
   );
