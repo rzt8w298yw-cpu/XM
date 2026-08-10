@@ -7,8 +7,11 @@
 import { generateSignal } from "../lib/autoSignalEngine";
 import { fetchMarketData, SYMBOLS } from "../lib/marketData";
 import { buildTradePlan } from "../lib/tradePlan";
+import { buildLotPlan } from "../lib/lotPlan";
+import { loadStrategyConfig } from "../lib/strategyConfig";
 
 async function main() {
+  const { config: strategy } = loadStrategyConfig();
   const symbols = [];
   let source = "synthetic";
   let note: string | null = null;
@@ -20,14 +23,28 @@ async function main() {
     );
     source = market.source;
     note = market.note ?? null;
+    const tradePlan = buildTradePlan(
+      result.signal, result.analysis.currentPrice, result.analysis.currentATR, spec.pipSize,
+      {
+        atrStopMultiplier: strategy.atrStopMultiplier,
+        riskRewardRatio: strategy.riskRewardRatio,
+      },
+    );
+
     symbols.push({
       id: spec.id,
       label: spec.label,
       digits: spec.digits,
       pipSize: spec.pipSize,
-      tradePlan: buildTradePlan(
-        result.signal, result.analysis.currentPrice, result.analysis.currentATR, spec.pipSize,
-      ),
+      tradePlan,
+      lotPlan: tradePlan
+        ? buildLotPlan({
+            spec,
+            stopDistancePips: tradePlan.stopPips,
+            accountBalance: strategy.accountBalance,
+            riskPercent: strategy.riskPercent,
+          })
+        : null,
       ...result,
     });
   }
