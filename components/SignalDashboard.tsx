@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { SignalType } from "@/lib/autoSignalEngine";
 import type { SignalApiResponse } from "@/lib/types";
 import { describeCandleAge } from "@/lib/marketData";
@@ -52,13 +52,29 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
+  // 進行中のリクエストを識別する。銘柄を素早く切り替えると、先に投げた
+  // 遅いリクエストが後から返って別銘柄の判定を上書きしうる。取引の判断に
+  // 使う画面で表示と銘柄がずれるのは危険なので、最新の要求以外は捨てる。
+  const requestId = useRef(0);
+  const inFlight = useRef<AbortController | null>(null);
+
   const load = useCallback(async (target: string) => {
+    inFlight.current?.abort();
+    const controller = new AbortController();
+    inFlight.current = controller;
+
+    const id = ++requestId.current;
+    const isStale = () => id !== requestId.current;
+
     setLoading(true);
     try {
       const response = await fetch(`/api/signal?symbol=${encodeURIComponent(target)}`, {
         cache: "no-store",
+        signal: controller.signal,
       });
       const json = await response.json();
+      if (isStale()) return;
+
       if (!response.ok) {
         throw new Error(json?.error ?? `HTTP ${response.status}`);
       }
@@ -66,11 +82,17 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
       setError(null);
       setUpdatedAt(new Date());
     } catch (err) {
+      // 自分で中断したものと、既に古くなった結果は無視する
+      if (isStale() || (err instanceof DOMException && err.name === "AbortError")) return;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      // 後続のリクエストが走っている間は読み込み中のままにする
+      if (!isStale()) setLoading(false);
     }
   }, []);
+
+  // 画面を離れる時に進行中のリクエストを片付ける
+  useEffect(() => () => inFlight.current?.abort(), []);
 
   useEffect(() => {
     void load(symbol);

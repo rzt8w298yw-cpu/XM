@@ -76,8 +76,8 @@ const MUTATIONS: Mutation[] = [
   {
     description: "バックテスト: 未確定の日足も判定に渡す（先読み）",
     file: "lib/backtest.ts",
-    find: "const dailyClosed = candlesDaily.filter((d) => d.timestamp + DAY_MS <= barCloseTime);",
-    replace: "const dailyClosed = candlesDaily.filter((d) => d.timestamp <= barCloseTime);",
+    find: "return candlesDaily.filter((d) => d.timestamp + DAY_MS <= atTime);",
+    replace: "return candlesDaily.filter((d) => d.timestamp <= atTime);",
   },
   // --- 指標 ---
   {
@@ -210,6 +210,9 @@ function main() {
   console.log("落ちなかったもの＝テストの穴です。\n");
 
   const survivors: Mutation[] = [];
+  // リファクタで対象の文字列が変わると、そのミューテーションは何も検証しない。
+  // 黙って通ると「守られている」と誤解するので、見失いは失敗として扱う。
+  const unapplied: Mutation[] = [];
   let killed = 0;
 
   targets.forEach((mutation, index) => {
@@ -217,8 +220,9 @@ function main() {
     const occurrences = original.split(mutation.find).length - 1;
 
     if (occurrences !== 1) {
+      unapplied.push(mutation);
       console.log(
-        `  [${index + 1}/${targets.length}] ⚠ 対象が見つかりません（${occurrences}箇所）: ${mutation.description}`,
+        `  [${index + 1}/${targets.length}] ⚠ 適用できません（該当${occurrences}箇所）: ${mutation.description}`,
       );
       return;
     }
@@ -242,8 +246,20 @@ function main() {
 
   console.log("");
   console.log("=".repeat(70));
-  console.log(`検出 ${killed} / 生存 ${survivors.length}`);
+  console.log(
+    `検出 ${killed} / 生存 ${survivors.length}` +
+      (unapplied.length > 0 ? ` / 適用不可 ${unapplied.length}` : ""),
+  );
   console.log("=".repeat(70));
+
+  if (unapplied.length > 0) {
+    console.log("\n対象の文字列が見つからず、何も検証できなかったもの:");
+    for (const mutation of unapplied) {
+      console.log(`  - ${mutation.description}`);
+      console.log(`    ${mutation.file}`);
+    }
+    console.log("\nコードの変更に追随できていません。定義を更新してください。");
+  }
 
   if (survivors.length > 0) {
     console.log("\nテストが見逃した変更:");
@@ -259,7 +275,7 @@ function main() {
     process.exit(1);
   }
 
-  process.exit(survivors.length > 0 ? 1 : 0);
+  process.exit(survivors.length > 0 || unapplied.length > 0 ? 1 : 0);
 }
 
 main();
