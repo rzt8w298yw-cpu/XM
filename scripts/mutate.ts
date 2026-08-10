@@ -285,6 +285,25 @@ const MUTATIONS: Mutation[] = [
     find: "    if (Math.min(direct, wrapped) <= avoidMinutes) {",
     replace: "    if (direct <= avoidMinutes) {",
   },
+  // --- ロット計算 ---
+  {
+    description: "ロット: 換算レート不明でも1として計算してしまう",
+    file: "lib/lotPlan.ts",
+    find: "  if (rate === undefined || !Number.isFinite(rate) || rate <= 0) {",
+    replace: "  if (false) {",
+  },
+  {
+    description: "ロット: 決済通貨と口座通貨の一致判定を常に真にする",
+    file: "lib/lotPlan.ts",
+    find: "  const sameCurrency = input.spec.quoteCurrency === accountCurrency;",
+    replace: "  const sameCurrency = true;",
+  },
+  {
+    description: "ロット: 残高未設定でも計算する",
+    file: "lib/lotPlan.ts",
+    find: "  if (input.accountBalance <= 0) return null;",
+    replace: "  if (false) return null;",
+  },
   // --- CSV ---
   {
     description: "CSV: 空セルを0として受け入れる",
