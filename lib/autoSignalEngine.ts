@@ -341,7 +341,11 @@ export function generateSignal(
     name: "サポレジ確認",
     category: "entry",
     met: srCheck.near,
-    value: srCheck.near ? `${srCheck.level!.type === "support" ? "サポート" : "レジスタンス"}付近 (強度${srCheck.level!.strength})` : "サポレジから離れている",
+    // 「強度15」とだけ出しても、それが何本ぶんを見た結果なのか分からず
+    // 大きい数字にしか見えない。数えた本数と一緒に出す。
+    value: srCheck.near
+      ? `${srCheck.level!.type === "support" ? "サポート" : "レジスタンス"}付近（直近${candles1H.length}本で${srCheck.level!.strength}回反応）`
+      : "サポレジから離れている",
     weight: 4,
   });
 
