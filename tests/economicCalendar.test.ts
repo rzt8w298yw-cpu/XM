@@ -67,11 +67,28 @@ describe("予定が無く推定に頼る場合", () => {
     expect(checkEconomicCalendar(atJst(17, 0), null).ok).toBe(true);
   });
 
-  it("日付をまたぐ距離も正しく測る", () => {
+  it("定例時刻の直前も避ける", () => {
     // JST 3:00 のFOMCに対して 2:35 は25分前
     expect(checkEconomicCalendar(atJst(2, 35), null).ok).toBe(false);
-    // 23:50 は 3:00 から3時間以上離れているので通す
+  });
+
+  it("日付をまたぐ距離で測る", () => {
+    // JST 0:00 は 22:00(ISM) から単純な引き算だと1320分だが、
+    // 日付をまたげば120分。最も近い窓は 3:00(FOMC) の180分なので、
+    // 回避120分にすると「またぎ側の120分」だけが判定を分ける
+    expect(checkEconomicCalendar(atJst(0, 0), null, 110).ok).toBe(true);
+
+    const at120 = checkEconomicCalendar(atJst(0, 0), null, 120);
+    expect(at120.ok).toBe(false);
+    expect(at120.description).toMatch(/推定/);
+  });
+
+  it("既定の30分では日付またぎの判定は効かない", () => {
+    // 定例時刻が 3:00 / 12:00 / 21:30 / 22:00 のいずれも、
+    // 30分の窓では日付をまたぐ側が近くなる時刻が存在しない。
+    // またぎ処理は回避分数を広げたときのための備え
     expect(checkEconomicCalendar(atJst(23, 50), null).ok).toBe(true);
+    expect(checkEconomicCalendar(atJst(0, 30), null).ok).toBe(true);
   });
 
   it("0時台でも12時の日銀と誤判定しない", () => {

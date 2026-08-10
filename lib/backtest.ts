@@ -257,7 +257,7 @@ export function simulateTrade(
   const entryPrice = candles1H[entryIndex].open;
   const sign = direction === "BUY" ? 1 : -1;
   const stopDistance = atr * cfg.atrStopMultiplier;
-  const targetDistance = stopDistance;
+  const targetDistance = stopDistance * cfg.riskRewardRatio;
   const stopLoss = entryPrice - stopDistance * sign;
   const takeProfit = entryPrice + targetDistance * sign;
 

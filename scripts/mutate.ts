@@ -38,8 +38,8 @@ const MUTATIONS: Mutation[] = [
   {
     description: "決済: 同一足で両側に触れた時に利確を優先（楽観側に倒す）",
     file: "lib/backtest.ts",
-    find: "    if (hitStop) {\n      return buildTrade(direction, candles1H, entryIndex, j, entryPrice, stopLoss, stopLoss, takeProfit, \"stop_loss\", confidence, cfg);\n    }\n    if (hitTarget) {",
-    replace: "    if (hitTarget) {\n      return buildTrade(direction, candles1H, entryIndex, j, entryPrice, takeProfit, stopLoss, takeProfit, \"take_profit\", confidence, cfg);\n    }\n    if (hitStop) {",
+    find: "    if (hitStop) {\n      // 損切りは不利な方向に滑る。BUYなら想定より安く、SELLなら高く約定する\n      const filled = stopLoss - cfg.stopSlippagePips * cfg.pipSize * sign;\n      return buildTrade(direction, candles1H, entryIndex, j, entryPrice, filled, stopLoss, takeProfit, \"stop_loss\", confidence, cfg);\n    }\n    if (hitTarget) {",
+    replace: "    if (hitTarget) {\n      return buildTrade(direction, candles1H, entryIndex, j, entryPrice, takeProfit, stopLoss, takeProfit, \"take_profit\", confidence, cfg);\n    }\n    if (hitStop) {\n      const filled = stopLoss - cfg.stopSlippagePips * cfg.pipSize * sign;\n      return buildTrade(direction, candles1H, entryIndex, j, entryPrice, filled, stopLoss, takeProfit, \"stop_loss\", confidence, cfg);\n    }\n    if (false) {",
   },
   {
     description: "決済: エントリーをシグナル足の終値にする（先読み）",
