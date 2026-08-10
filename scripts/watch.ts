@@ -14,18 +14,21 @@
  * 前回と変わったときだけ通知する。cronで回す場合もこのファイルが引き継がれるよう
  * 永続化された場所を指定すること。
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { generateSignal } from "../lib/autoSignalEngine";
 import { fetchMarketData, getSymbolSpec, SYMBOLS } from "../lib/marketData";
 import { buildTradePlan } from "../lib/tradePlan";
 import { loadStrategyConfig, type StrategyConfig } from "../lib/strategyConfig";
+import {
+  ensureStateWritable,
+  loadSignalState,
+  saveSignalState,
+} from "../lib/signalState";
 import {
   createConsoleNotifier,
   createWebhookNotifier,
   diffSignals,
   type EvaluationInput,
   type Notifier,
-  type SignalState,
 } from "../lib/notifier";
 
 interface Args {
@@ -85,21 +88,6 @@ function parseArgs(argv: string[]): Args {
   };
 }
 
-function loadState(path: string): SignalState {
-  if (!existsSync(path)) return {};
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf8"));
-    return typeof parsed === "object" && parsed !== null ? (parsed as SignalState) : {};
-  } catch {
-    console.warn(`状態ファイルを読めませんでした（${path}）。初回として扱います。`);
-    return {};
-  }
-}
-
-function saveState(path: string, state: SignalState): void {
-  writeFileSync(path, JSON.stringify(state, null, 2));
-}
-
 async function evaluateAll(
   symbolIds: string[],
   allowSynthetic: boolean,
@@ -157,12 +145,17 @@ async function runOnce(args: Args, notifier: Notifier, strategy: StrategyConfig)
 
   if (evaluations.length === 0) return;
 
-  const previous = loadState(args.statePath);
+  const { state: previous, problem } = loadSignalState(args.statePath);
+  if (problem !== null) {
+    console.warn(
+      `状態ファイルを読めませんでした（${args.statePath}）: ${problem}。初回として扱います。`,
+    );
+  }
   const { notifications, nextState } = diffSignals(previous, evaluations);
 
   if (notifications.length === 0) {
     // 変化が無くても、最後に見た足の時刻は更新しておく
-    saveState(args.statePath, nextState);
+    saveSignalState(args.statePath, nextState);
     return;
   }
 
@@ -178,7 +171,7 @@ async function runOnce(args: Args, notifier: Notifier, strategy: StrategyConfig)
   }
 
   // 送信に失敗したものがあれば状態を進めず、次回もう一度通知を試みる
-  if (allSent) saveState(args.statePath, nextState);
+  if (allSent) saveSignalState(args.statePath, nextState);
   else console.error("状態を更新しませんでした。次回の実行で再送を試みます。");
 }
 
@@ -194,6 +187,9 @@ async function main() {
   if (!webhookUrl && !args.dryRun) {
     console.warn("SIGNAL_WEBHOOK_URL が未設定です。標準出力に出力します。");
   }
+
+  // 最初のシグナルが出た瞬間に初めて失敗するのを避け、起動時に確かめる
+  ensureStateWritable(args.statePath);
 
   console.log(`監視対象  : ${args.symbols.join(", ")}`);
   if (args.allowSynthetic) {
@@ -219,9 +215,21 @@ async function main() {
     process.exit(0);
   });
 
-  // 起動直後に1回走らせ、以降は間隔をあけて繰り返す
+  // 起動直後に1回走らせ、以降は間隔をあけて繰り返す。
+  // 1周期の失敗で監視ごと止まると、以降のシグナルを黙って取りこぼす。
+  // 失敗は記録して次の周期で立て直す。
+  let consecutiveFailures = 0;
   while (!stopping) {
-    await runOnce(args, notifier, strategy);
+    try {
+      await runOnce(args, notifier, strategy);
+      consecutiveFailures = 0;
+    } catch (error) {
+      consecutiveFailures++;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        `判定に失敗しました（連続${consecutiveFailures}回）: ${message}。次の周期で再試行します。`,
+      );
+    }
     await new Promise((resolve) => setTimeout(resolve, args.intervalSeconds * 1000));
   }
 }
