@@ -55,6 +55,12 @@ describe("calculateStreaks", () => {
     expect(streaks.longestLoss).toBe(4);
   });
 
+  it("勝ちを挟めば連敗はそこで切れる", () => {
+    // 2連敗 → 勝ち → 1敗。連敗の最大は2で、通算3ではない
+    const trades = [-1, -2, 10, -3].map((p) => trade(p));
+    expect(calculateStreaks(trades).longestLoss).toBe(2);
+  });
+
   it("引き分けは負け扱い（勝ちの定義に合わせる）", () => {
     expect(calculateStreaks([trade(0), trade(0)]).longestLoss).toBe(2);
   });
@@ -71,6 +77,12 @@ describe("calculateConcentration", () => {
     const result = calculateConcentration(trades);
     expect(result.topWinShare).toBeCloseTo(60, 6);
     expect(result.top3WinShare).toBeCloseTo(100, 6);
+  });
+
+  it("最大の勝ちは順番ではなく大きさで選ぶ", () => {
+    // 総利益 100。最初の勝ちは30だが、最大は2件目の60
+    const trades = [trade(30), trade(60), trade(10), trade(-20)];
+    expect(calculateConcentration(trades).topWinShare).toBeCloseTo(60, 6);
   });
 
   it("利益が分散していれば偏りは小さい", () => {
