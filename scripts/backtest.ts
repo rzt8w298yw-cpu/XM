@@ -24,6 +24,7 @@ interface Args {
   csv1H?: string;
   csvDaily?: string;
   spreadPips: number;
+  stopSlippagePips: number;
   windowSize: number;
   maxHoldingBars: number;
   atrStopMultiplier: number;
@@ -72,6 +73,7 @@ function parseArgs(argv: string[]): Args {
     csv1H: map.get("csv-1h"),
     csvDaily: map.get("csv-daily"),
     spreadPips: num("spread", 1.0),
+    stopSlippagePips: num("slippage", 0.5),
     windowSize: num("window", 1000),
     maxHoldingBars: num("max-holding", 120),
     atrStopMultiplier: num("atr-stop", 1.5),
@@ -138,7 +140,7 @@ async function main() {
   console.log(`1H足          : ${candles1H.length}本  ${span(candles1H)}`);
   console.log(`日足          : ${candlesDaily.length}本  ${span(candlesDaily)}`);
   console.log(
-    `試行条件      : スプレッド ${args.spreadPips}pips / 損切り ${args.atrStopMultiplier}ATR / RR 1:${args.riskRewardRatio} / 最大保有 ${args.maxHoldingBars}本`,
+    `試行条件      : スプレッド ${args.spreadPips}pips / 滑り ${args.stopSlippagePips}pips / 損切り ${args.atrStopMultiplier}ATR / RR 1:${args.riskRewardRatio} / 最大保有 ${args.maxHoldingBars}本`,
   );
   if (source.startsWith("合成データ")) {
     console.log("");
@@ -150,6 +152,7 @@ async function main() {
   const baseConfig = {
     pipSize: spec.pipSize,
     spreadPips: args.spreadPips,
+    stopSlippagePips: args.stopSlippagePips,
     windowSize: args.windowSize,
     maxHoldingBars: args.maxHoldingBars,
     atrStopMultiplier: args.atrStopMultiplier,

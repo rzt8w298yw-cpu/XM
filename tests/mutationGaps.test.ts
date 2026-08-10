@@ -72,6 +72,7 @@ describe("損切り判定の境界", () => {
     atrStopMultiplier: 1.5,
     riskRewardRatio: 2,
     spreadPips: 0,
+    stopSlippagePips: 0,
     windowSize: 1000,
     maxHoldingBars: 10,
   };

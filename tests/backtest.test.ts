@@ -70,6 +70,8 @@ describe("simulateTrade", () => {
     atrStopMultiplier: 1.5,
     riskRewardRatio: 2,
     spreadPips: 1,
+    // 既存の期待値は滑り無しの前提。滑りの挙動は別のテストで確かめる
+    stopSlippagePips: 0,
     windowSize: 1000,
     maxHoldingBars: 10,
   };
@@ -150,6 +152,64 @@ describe("simulateTrade", () => {
     const trade = simulateTrade(candles, 0, "BUY", ATR, 70, cfg)!;
     expect(trade.exitReason).toBe("timeout");
     expect(trade.holdingBars).toBe(cfg.maxHoldingBars);
+  });
+
+  it("損切りは不利な方向に滑る", () => {
+    // 損切りに達するのは値動きが速い局面なので、指定レートより不利に約定する。
+    // ここを見ないとバックテストが実際より良く出る
+    const withSlip = { ...cfg, stopSlippagePips: 2 };
+    const candles = [
+      bar(0, 150.0, 150.1, 149.9, 150.0),
+      bar(1, 150.0, 150.1, 149.95, 150.0),
+      bar(2, 150.0, 150.05, 149.8, 149.85), // 149.85 = 損切りライン
+      ...Array.from({ length: 8 }, (_, i) => bar(i + 3, 149.85, 149.9, 149.8, 149.85)),
+    ];
+    const trade = simulateTrade(candles, 0, "BUY", ATR, 70, withSlip)!;
+    expect(trade.exitReason).toBe("stop_loss");
+    // 損切り149.85から2pips不利にずれて149.83で約定
+    expect(trade.exitPrice).toBeCloseTo(149.83, 10);
+    // -17pips - スプレッド1pip
+    expect(trade.pips).toBeCloseTo(-18, 10);
+  });
+
+  it("SELLの損切りは逆方向に滑る", () => {
+    const withSlip = { ...cfg, stopSlippagePips: 2 };
+    const candles = [
+      bar(0, 150.0, 150.1, 149.9, 150.0),
+      bar(1, 150.0, 150.05, 149.95, 150.0),
+      bar(2, 150.0, 150.2, 149.95, 150.15), // 150.15 = SELLの損切りライン
+      ...Array.from({ length: 8 }, (_, i) => bar(i + 3, 150.15, 150.2, 150.1, 150.15)),
+    ];
+    const trade = simulateTrade(candles, 0, "SELL", ATR, 70, withSlip)!;
+    expect(trade.exitReason).toBe("stop_loss");
+    // SELLは高く約定するのが不利
+    expect(trade.exitPrice).toBeCloseTo(150.17, 10);
+    expect(trade.pips).toBeCloseTo(-18, 10);
+  });
+
+  it("利確は指値なので滑らせない", () => {
+    const withSlip = { ...cfg, stopSlippagePips: 2 };
+    const candles = [
+      bar(0, 150.0, 150.1, 149.9, 150.0),
+      bar(1, 150.0, 150.1, 149.95, 150.0),
+      bar(2, 150.0, 150.35, 149.95, 150.3),
+      ...Array.from({ length: 8 }, (_, i) => bar(i + 3, 150.3, 150.4, 150.2, 150.3)),
+    ];
+    const trade = simulateTrade(candles, 0, "BUY", ATR, 70, withSlip)!;
+    expect(trade.exitReason).toBe("take_profit");
+    expect(trade.exitPrice).toBeCloseTo(150.3, 10);
+    expect(trade.pips).toBeCloseTo(29, 10);
+  });
+
+  it("時間切れの決済も成行なので滑る", () => {
+    const withSlip = { ...cfg, stopSlippagePips: 2 };
+    const candles = [
+      bar(0, 150.0, 150.1, 149.9, 150.0),
+      ...Array.from({ length: 20 }, (_, i) => bar(i + 1, 150.0, 150.05, 149.95, 150.0)),
+    ];
+    const trade = simulateTrade(candles, 0, "BUY", ATR, 70, withSlip)!;
+    expect(trade.exitReason).toBe("timeout");
+    expect(trade.exitPrice).toBeCloseTo(149.98, 10);
   });
 
   it("次の足が無ければ約定しない", () => {

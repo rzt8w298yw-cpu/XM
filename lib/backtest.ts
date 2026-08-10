@@ -9,6 +9,7 @@
  * - 日足は「その時点で確定済み」のものだけ渡す（形成中の日足の終値は使えない）。
  * - エントリーはシグナルが出た足の終値ではなく、次の足の始値で約定させる。
  * - 同じ足の中で利確・損切りの両方に触れた場合は損切りを優先する（悲観側）。
+ * - 損切りと時間切れの決済は不利な方向に滑らせる（指値で約定する利確は滑らせない）。
  */
 import {
   generateSignal,
@@ -31,6 +32,12 @@ export interface BacktestConfig {
   riskRewardRatio: number;
   /** 往復のスプレッド/コスト（pips）。全トレードの損益から差し引く */
   spreadPips: number;
+  /**
+   * 損切りの滑り（pips）。損切りに達するのは値動きが速い局面なので、
+   * 実際の約定は指定レートより不利になる。ここを0にすると成績が
+   * 実態より良く出る。
+   */
+  stopSlippagePips: number;
   /** 判定に渡す1H足の本数。本番アプリの取得本数に合わせる */
   windowSize: number;
   /** 決済されないまま保有し続ける上限（1H足の本数） */
@@ -44,6 +51,7 @@ export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
   atrStopMultiplier: 1.5,
   riskRewardRatio: 2,
   spreadPips: 1.0,
+  stopSlippagePips: 0.5,
   windowSize: 1000,
   maxHoldingBars: 120,
 };
@@ -264,7 +272,9 @@ export function simulateTrade(
     // 同じ足で両方に触れた場合、足の中の到達順は1H足からは判別できない。
     // 成績を楽観的に見積もらないよう損切り側を採用する。
     if (hitStop) {
-      return buildTrade(direction, candles1H, entryIndex, j, entryPrice, stopLoss, stopLoss, takeProfit, "stop_loss", confidence, cfg);
+      // 損切りは不利な方向に滑る。BUYなら想定より安く、SELLなら高く約定する
+      const filled = stopLoss - cfg.stopSlippagePips * cfg.pipSize * sign;
+      return buildTrade(direction, candles1H, entryIndex, j, entryPrice, filled, stopLoss, takeProfit, "stop_loss", confidence, cfg);
     }
     if (hitTarget) {
       return buildTrade(direction, candles1H, entryIndex, j, entryPrice, takeProfit, stopLoss, takeProfit, "take_profit", confidence, cfg);
@@ -276,9 +286,11 @@ export function simulateTrade(
     exitIndex >= candles1H.length - 1 && exitIndex < entryIndex + cfg.maxHoldingBars - 1
       ? "end_of_data"
       : "timeout";
+  // 時間切れの決済も成行なので不利側に滑る
+  const marketExit = candles1H[exitIndex].close - cfg.stopSlippagePips * cfg.pipSize * sign;
   return buildTrade(
     direction, candles1H, entryIndex, exitIndex, entryPrice,
-    candles1H[exitIndex].close, stopLoss, takeProfit, reason, confidence, cfg,
+    marketExit, stopLoss, takeProfit, reason, confidence, cfg,
   );
 }
 
