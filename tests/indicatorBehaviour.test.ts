@@ -117,6 +117,68 @@ describe("サポレジの検出", () => {
       expect(levels[i - 1].strength).toBeGreaterThanOrEqual(levels[i].strength);
     }
   });
+
+  /**
+   * 許容幅ぎりぎりの点が数珠つなぎになる形。
+   *
+   * 重心を平均で更新しながら吸収していくと、150.00 → 150.15 で重心が
+   * 150.075 に動き、次の 150.30 もそこから0.15%以内に見えて吸収される。
+   * 結果として1本の「帯」が0.2%（ドル円で30pips）に広がる。
+   * サポレジ付近かどうかは同じ0.15%で見ているので、そうなると
+   * 「サポート付近」と言いながら30pips離れていることが起きる。
+   */
+  const ladder = (() => {
+    const base = Array.from({ length: 25 }, (_, i) => ({
+      timestamp: i * HOUR, open: 150.55, high: 150.6, low: 150.5, close: 150.55,
+    }));
+    const putLow = (i: number, low: number) => {
+      base[i] = { timestamp: i * HOUR, open: low, high: 150.6, low, close: low };
+    };
+    putLow(4, 150.0);
+    putLow(10, 150.15);
+    putLow(16, 150.3);
+    return base;
+  })();
+
+  it("許容幅ぎりぎりの点が連なっても、帯は許容幅を超えて広がらない", () => {
+    const prices = detectSupportResistance(ladder)
+      .map((l) => l.price)
+      .sort((a, b) => a - b);
+
+    // 重心が動く実装だと3点すべてが1本に吸われて 150.15 だけが残る
+    expect(prices).toHaveLength(2);
+    // 150.00 と 150.15 は 0.1% 差なので同じ帯。150.30 は両端で 0.2% 差なので別
+    expect(prices[0]).toBeCloseTo(150.075, 6);
+    expect(prices[1]).toBeCloseTo(150.3, 6);
+  });
+
+  /**
+   * 同じ場所で数時間もみ合うと、高値と安値が交互にスイング点として立つ。
+   * それを1回ずつ数えると「強度6」のような値になるが、実際に来たのは1回。
+   */
+  const chop = (gapBars: number) =>
+    Array.from({ length: 25 }, (_, i) => {
+      if (i === 5) {
+        return { timestamp: i * HOUR, open: 150.15, high: 150.15, low: 150.05, close: 150.1 };
+      }
+      if (i === 5 + gapBars) {
+        return { timestamp: i * HOUR, open: 150.0, high: 150.12, low: 150.0, close: 150.06 };
+      }
+      return { timestamp: i * HOUR, open: 150.08, high: 150.12, low: 150.05, close: 150.08 };
+    });
+
+  it("同じもみ合いの中の高値と安値は1回の反応として数える", () => {
+    const levels = detectSupportResistance(chop(3));
+    // 150.15 と 150.00 は 0.1% 差なので同じ帯。3本しか離れていない
+    expect(levels).toHaveLength(1);
+    expect(levels[0].strength).toBe(1);
+  });
+
+  it("間隔が空いていれば別々の反応として数える", () => {
+    const levels = detectSupportResistance(chop(9));
+    expect(levels).toHaveLength(1);
+    expect(levels[0].strength).toBe(2);
+  });
 });
 
 // ============================================================

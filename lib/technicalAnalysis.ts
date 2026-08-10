@@ -276,6 +276,16 @@ function findSwings(
 /**
  * スイング点を価格帯でクラスタリングしてサポレジを抽出。
  * 反応回数(strength)の多い順に返す。
+ *
+ * 価格順に並べてから帯を切る。帯の下端を固定したまま許容誤差以内の点だけを
+ * 入れるので、帯の幅が許容誤差を超えることが構造上ありえない。
+ *
+ * 到着順に見て「重心から許容誤差以内なら吸収し、重心を平均で更新する」やり方
+ * だと、吸収のたびに重心が動いて帯が価格上を歩いてしまう。合成系列で測ると
+ * 15.6%の帯が許容誤差より広くなり、最悪で2倍（ドル円で46pips幅）に達した。
+ * 「サポレジ付近か」の判定は同じ許容誤差で見ているので、帯自身がそれより
+ * 広いとその判定は意味を失う。さらに `find` は最初に一致した帯を返すため、
+ * より近い帯があってもそちらには入らない（同じ計測で580回）。
  */
 export function detectSupportResistance(
   candles: OHLC[],
@@ -287,33 +297,57 @@ export function detectSupportResistance(
   const { highs, lows } = findSwings(candles, swingWindow);
   const currentPrice = candles[candles.length - 1].close;
 
-  const clusters: { sum: number; count: number; price: number }[] = [];
-  for (const swing of [...highs, ...lows]) {
-    const hit = clusters.find(
-      (c) => Math.abs(c.price - swing.price) / c.price <= clusterTolerance,
-    );
-    if (hit) {
-      hit.sum += swing.price;
-      hit.count += 1;
-      hit.price = hit.sum / hit.count;
+  const sorted = [...highs, ...lows].sort((a, b) => a.price - b.price);
+  const clusters: Swing[][] = [];
+  let current: Swing[] = [];
+  let bandBottom = 0;
+
+  for (const swing of sorted) {
+    if (current.length === 0) {
+      current = [swing];
+      bandBottom = swing.price;
+    } else if (bandBottom > 0 && (swing.price - bandBottom) / bandBottom <= clusterTolerance) {
+      current.push(swing);
     } else {
-      clusters.push({ sum: swing.price, count: 1, price: swing.price });
+      clusters.push(current);
+      current = [swing];
+      bandBottom = swing.price;
     }
   }
+  if (current.length > 0) clusters.push(current);
 
   return clusters
-    .map((c) => ({
-      price: c.price,
-      type: (c.price < currentPrice ? "support" : "resistance") as
-        | "support"
-        | "resistance",
-      strength: c.count,
-    }))
+    .map((members) => {
+      const price = members.reduce((sum, m) => sum + m.price, 0) / members.length;
+      return {
+        price,
+        type: (price < currentPrice ? "support" : "resistance") as
+          | "support"
+          | "resistance",
+        strength: countVisits(members, swingWindow * 2),
+      };
+    })
     .sort(
       (a, b) =>
         b.strength - a.strength ||
         Math.abs(a.price - currentPrice) - Math.abs(b.price - currentPrice),
     );
+}
+
+/**
+ * 帯に入ったスイング点を「何回そこへ来たか」に数え直す。
+ *
+ * ピボットの本数をそのまま強度にすると、値が数時間その帯で揉んだだけで
+ * 高値と安値が交互に立ち、1回の滞在が5回にも6回にも見える。
+ * `gapBars` 本以上空いていなければ同じ訪問として1回に畳む。
+ */
+function countVisits(members: Swing[], gapBars: number): number {
+  const byTime = [...members].sort((a, b) => a.index - b.index);
+  let visits = 1;
+  for (let i = 1; i < byTime.length; i++) {
+    if (byTime[i].index - byTime[i - 1].index >= gapBars) visits++;
+  }
+  return visits;
 }
 
 /** 現在値がサポレジ帯（許容誤差 tolerance）に入っているか */

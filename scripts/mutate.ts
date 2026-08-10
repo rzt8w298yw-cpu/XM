@@ -178,14 +178,38 @@ const MUTATIONS: Mutation[] = [
   {
     description: "サポレジ: クラスタの許容幅を100倍に広げる",
     file: "lib/technicalAnalysis.ts",
-    find: "      (c) => Math.abs(c.price - swing.price) / c.price <= clusterTolerance,",
-    replace: "      (c) => Math.abs(c.price - swing.price) / c.price <= clusterTolerance * 100,",
+    find: "    } else if (bandBottom > 0 && (swing.price - bandBottom) / bandBottom <= clusterTolerance) {",
+    replace: "    } else if (bandBottom > 0 && (swing.price - bandBottom) / bandBottom <= clusterTolerance * 100) {",
+  },
+  {
+    description: "サポレジ: 帯の下端ではなく直前の点から測る（連鎖を許す）",
+    file: "lib/technicalAnalysis.ts",
+    find: "      current.push(swing);\n    } else {\n      clusters.push(current);",
+    replace: "      current.push(swing);\n      bandBottom = swing.price;\n    } else {\n      clusters.push(current);",
+  },
+  {
+    description: "サポレジ: 価格順に並べずに検出順のまま帯を切る",
+    file: "lib/technicalAnalysis.ts",
+    find: "  const sorted = [...highs, ...lows].sort((a, b) => a.price - b.price);",
+    replace: "  const sorted = [...highs, ...lows];",
+  },
+  {
+    description: "サポレジ: 強度を訪問回数ではなくピボット本数にする",
+    file: "lib/technicalAnalysis.ts",
+    find: "        strength: countVisits(members, swingWindow * 2),",
+    replace: "        strength: members.length,",
+  },
+  {
+    description: "サポレジ: 別の訪問とみなす間隔を広げる",
+    file: "lib/technicalAnalysis.ts",
+    find: "    if (byTime[i].index - byTime[i - 1].index >= gapBars) visits++;",
+    replace: "    if (byTime[i].index - byTime[i - 1].index >= gapBars * 4) visits++;",
   },
   {
     description: "サポレジ: サポートとレジスタンスの区別を逆にする",
     file: "lib/technicalAnalysis.ts",
-    find: "      type: (c.price < currentPrice ? \"support\" : \"resistance\") as",
-    replace: "      type: (c.price > currentPrice ? \"support\" : \"resistance\") as",
+    find: "        type: (price < currentPrice ? \"support\" : \"resistance\") as",
+    replace: "        type: (price > currentPrice ? \"support\" : \"resistance\") as",
   },
   {
     description: "サポレジ近接: 許容幅の判定を常に真にする",
