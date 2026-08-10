@@ -23,6 +23,7 @@ interface Args {
   paths: number;
   bars: number;
   spreadPips: number;
+  stopSlippagePips: number;
   windowSize: number;
   seed: number;
 }
@@ -47,6 +48,7 @@ function parseArgs(argv: string[]): Args {
     paths: num("paths", 20),
     bars: num("bars", 8000),
     spreadPips: num("spread", 1.0),
+    stopSlippagePips: num("slippage", 0.5),
     windowSize: num("window", 1000),
     seed: num("seed", 1),
   };
@@ -88,7 +90,7 @@ async function main() {
   console.log(`値動き        : ドル円に似た性質の合成系列（GARCH型ボラティリティ +`);
   console.log(`                セッション別ボラ + 週末の空白 + 緩やかなレジーム転換）`);
   console.log(`試行           : ${args.paths}本の独立した価格系列 × 各${args.bars}本の1H足`);
-  console.log(`コスト         : スプレッド ${args.spreadPips} pips / 損切り 1.5ATR / RR 1:2`);
+  console.log(`コスト         : スプレッド ${args.spreadPips} pips / 滑り ${args.stopSlippagePips} pips / 損切り 1.5ATR / RR 1:2`);
   console.log("");
   console.log("⚠ これは実際のドル円の歴史ではありません。答えを出せるのは");
   console.log("  「同じ値動きに対して判定ロジックがランダムエントリーより優れているか」");
@@ -100,6 +102,7 @@ async function main() {
   const config = {
     pipSize,
     spreadPips: args.spreadPips,
+    stopSlippagePips: args.stopSlippagePips,
     windowSize: args.windowSize,
     atrStopMultiplier: 1.5,
     riskRewardRatio: 2,
@@ -136,6 +139,8 @@ async function main() {
   report("戦略", outcomes.map((o) => o.strategy));
   console.log("");
   report("ランダムエントリー（対照）", outcomes.map((o) => o.control));
+  console.log("");
+  reportByDirection(outcomes.map((o) => o.strategy));
 
   console.log("");
   console.log("-".repeat(74));
@@ -154,6 +159,42 @@ async function main() {
   console.log("");
   console.log("判定の目安: 上回った系列が半数前後なら、この値動きに対して判定ロジックは");
   console.log("ランダムエントリーと区別できません。明確に優位なら7割以上に寄ります。");
+}
+
+/**
+ * 方向別の成績を系列をまたいで見る。
+ *
+ * 単一の系列では「BUYだけ負けている」といった偏りが出るが、それが
+ * 戦略の性質なのかその値動きに固有なのかは1本では区別できない。
+ * 系列をまたいで集計し、どちらが優勢だった系列の数も併記する。
+ */
+function reportByDirection(stats: BacktestStats[]) {
+  const sum = (pick: (s: BacktestStats) => number) => stats.reduce((t, s) => t + pick(s), 0);
+
+  const buyTrades = sum((s) => s.byDirection.BUY.trades);
+  const sellTrades = sum((s) => s.byDirection.SELL.trades);
+  const buyWins = sum((s) => s.byDirection.BUY.wins);
+  const sellWins = sum((s) => s.byDirection.SELL.wins);
+  const buyPips = sum((s) => s.byDirection.BUY.netPips);
+  const sellPips = sum((s) => s.byDirection.SELL.netPips);
+
+  const buyBetter = stats.filter(
+    (s) => s.byDirection.BUY.netPips > s.byDirection.SELL.netPips,
+  ).length;
+
+  console.log("方向別（全系列の合計）");
+  console.log(
+    `  BUY : ${String(buyTrades).padStart(4)}件  勝率 ${fmt(buyTrades === 0 ? 0 : (buyWins / buyTrades) * 100).padStart(5)}%  ${fmt(buyPips).padStart(9)} pips`,
+  );
+  console.log(
+    `  SELL: ${String(sellTrades).padStart(4)}件  勝率 ${fmt(sellTrades === 0 ? 0 : (sellWins / sellTrades) * 100).padStart(5)}%  ${fmt(sellPips).padStart(9)} pips`,
+  );
+  console.log(`  BUYがSELLを上回った系列: ${buyBetter}/${stats.length}`);
+
+  if (buyBetter > 0 && buyBetter < stats.length) {
+    console.log("  → どちらが勝つかは系列によって入れ替わります。1本の結果だけで");
+    console.log("     「片方だけ機能しない」と判断しないでください");
+  }
 }
 
 function report(label: string, stats: BacktestStats[]) {
