@@ -2,6 +2,7 @@
  * 実データの取得と変換
  *
  *   npx tsx scripts/fetchRealData.ts --out data
+ *   npx tsx scripts/fetchRealData.ts --symbols all --timeframe d1 --out data
  *   npx tsx scripts/fetchRealData.ts --symbol EURUSD --out data
  *
  * ejtraderLabs/historical-data（GitHubの公開リポジトリ）から実際の1時間足と
@@ -10,8 +11,8 @@
  * 直す点は2つある。どちらも黙って間違える種類のものなので、ここで明示的に
  * 処理する。
  *
- * 1. 価格が1000倍の整数で入っている（81121 = 81.121）。そのまま読むと
- *    ATRもpipsも桁が狂う。
+ * 1. 価格が「小数点以下の桁数ぶん10倍した整数」で入っている（81121 = 81.121、
+ *    130583 = 1.30583）。そのまま読むとATRもpipsも桁が狂う。
  *
  * 2. 時刻がブローカーのサーバー時刻（EET/EEST = UTC+2/+3）で入っている。
  *    UTCに直さないとセッション判定が2〜3時間ずれる。このデータがEETである
@@ -25,11 +26,29 @@ import { join } from "node:path";
 
 const BASE = "https://raw.githubusercontent.com/ejtraderLabs/historical-data/main";
 const BROKER_TZ = "Europe/Athens"; // EET/EEST
-const PRICE_SCALE = 1000;
+
+/**
+ * 価格は「小数点以下の桁数ぶん10倍した整数」で入っている。
+ * 130583 = 1.30583（5桁）、132244 = 132.244（3桁）、172497 = 1724.97（2桁）。
+ *
+ * 桁を間違えるとpipの大きさが10倍・100倍ずれる。比率では見えないので、
+ * 変換後に「日足の値幅がpipでいくつか」を必ず確かめる（`verifyScale`）。
+ */
+function conventionFor(symbol: string): { digits: number; pipSize: number } {
+  if (symbol.startsWith("XAU")) return { digits: 2, pipSize: 0.1 };
+  if (symbol.endsWith("JPY")) return { digits: 3, pipSize: 0.01 };
+  return { digits: 5, pipSize: 0.0001 };
+}
+
+const ALL_SYMBOLS = [
+  "USDJPY", "EURUSD", "GBPUSD", "EURJPY", "GBPJPY", "AUDUSD",
+  "AUDJPY", "EURCHF", "EURGBP", "USDCAD", "USDCHF", "XAUUSD",
+];
 
 interface Args {
-  symbol: string;
+  symbols: string[];
   outDir: string;
+  timeframes: ("h1" | "d1")[];
 }
 
 function parseArgs(argv: string[]): Args {
@@ -41,10 +60,20 @@ function parseArgs(argv: string[]): Args {
     if (eq !== -1) map.set(token.slice(2, eq), token.slice(eq + 1));
     else map.set(token.slice(2), argv[++i] ?? "");
   }
-  return {
-    symbol: (map.get("symbol") ?? "USDJPY").toUpperCase(),
-    outDir: map.get("out") ?? "data",
-  };
+  const requested = map.get("symbols") ?? map.get("symbol");
+  const symbols = requested === "all"
+    ? ALL_SYMBOLS
+    : (requested ?? "USDJPY").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+
+  const tfRaw = map.get("timeframe") ?? "h1,d1";
+  const timeframes = tfRaw.split(",").map((t) => t.trim()) as ("h1" | "d1")[];
+  for (const tf of timeframes) {
+    if (tf !== "h1" && tf !== "d1") {
+      throw new Error(`--timeframe は h1 か d1 で指定してください: ${tf}`);
+    }
+  }
+
+  return { symbols, outDir: map.get("out") ?? "data", timeframes };
 }
 
 /** 指定のUTC時刻における、そのタイムゾーンのUTCからのずれ（分） */
@@ -87,7 +116,7 @@ interface Row {
   close: number;
 }
 
-function convert(csv: string): { rows: Row[]; skipped: number; duplicates: number } {
+function convert(csv: string, scale: number): { rows: Row[]; skipped: number; duplicates: number } {
   const lines = csv.trim().split(/\r?\n/);
   const header = lines[0].split(",").map((c) => c.trim().toLowerCase());
   const idx = {
@@ -122,7 +151,7 @@ function convert(csv: string): { rows: Row[]; skipped: number; duplicates: numbe
     const price = (key: keyof typeof idx) => {
       const raw = (cells[idx[key]] ?? "").trim();
       if (raw === "") return NaN;
-      return Number(raw) / PRICE_SCALE;
+      return Number(raw) / scale;
     };
     const open = price("open");
     const high = price("high");
@@ -190,40 +219,86 @@ async function download(url: string): Promise<string> {
   return response.text();
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
-  const digits = args.symbol.endsWith("JPY") ? 3 : 5;
+/**
+ * 桁の取り違えを検出する。
+ *
+ * 桁がずれても値動きの「比率」は変わらないので、チャートを見ても気づけない。
+ * 変わるのはpipの大きさだけ。日足の値幅をpipで測れば、10倍・100倍のずれは
+ * すぐ出る（為替の日足は数十〜数百pips）。
+ */
+function verifyScale(rows: Row[], symbol: string, pipSize: number, label: string): void {
+  const ranges = rows.map((r) => (r.high - r.low) / pipSize).sort((a, b) => a - b);
+  const median = ranges[Math.floor(ranges.length / 2)];
+  console.log(`  ${label}: 値幅の中央値 ${median.toFixed(0)} pips`);
 
-  mkdirSync(args.outDir, { recursive: true });
-  console.log(`取得元: ${BASE}/${args.symbol}/`);
+  if (median < 10 || median > 3000) {
+    throw new Error(
+      `${symbol}: 値幅の中央値が ${median.toFixed(0)} pips です。` +
+        `価格の桁数の想定（${pipSize}）が違う可能性があります`,
+    );
+  }
+}
 
-  for (const [suffix, label, step] of [
-    ["h1", "1H足", 3_600_000],
-    ["d1", "日足", 86_400_000],
-  ] as const) {
-    const url = `${BASE}/${args.symbol}/${args.symbol}${suffix}.csv`;
+async function fetchSymbol(symbol: string, args: Args): Promise<void> {
+  const { digits, pipSize } = conventionFor(symbol);
+  const scale = 10 ** digits;
+
+  console.log("");
+  console.log(`${symbol}（小数${digits}桁 / 1pip = ${pipSize}）`);
+
+  for (const suffix of args.timeframes) {
+    const label = suffix === "h1" ? "1H足" : "日足";
+    const step = suffix === "h1" ? 3_600_000 : 86_400_000;
+    const url = `${BASE}/${symbol}/${symbol}${suffix}.csv`;
+
     const raw = await download(url);
-    const { rows, skipped, duplicates } = convert(raw);
+    const { rows, skipped, duplicates } = convert(raw, scale);
     if (rows.length === 0) throw new Error(`${url}: 有効な行がありません`);
 
     verify(rows, label, step);
+    verifyScale(rows, symbol, pipSize, label);
     if (skipped > 0) console.log(`  ${label}: ${skipped}行を読み飛ばしました`);
     if (duplicates > 0) {
       console.log(`  ${label}: 夏時間の戻りで重複した ${duplicates}行を除きました`);
     }
 
-    const outPath = join(args.outDir, `${args.symbol.toLowerCase()}_${suffix}_utc.csv`);
+    const outPath = join(args.outDir, `${symbol.toLowerCase()}_${suffix}_utc.csv`);
     writeFileSync(outPath, toCsv(rows, digits));
     console.log(`  → ${outPath}`);
   }
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  mkdirSync(args.outDir, { recursive: true });
+  console.log(`取得元: ${BASE}`);
+  console.log(`対象  : ${args.symbols.join(", ")}（${args.timeframes.join(", ")}）`);
+
+  const failed: string[] = [];
+  for (const symbol of args.symbols) {
+    try {
+      await fetchSymbol(symbol, args);
+    } catch (error) {
+      // 1銘柄の失敗で全部止めない。何が落ちたかは最後にまとめて出す
+      const message = error instanceof Error ? error.message : String(error);
+      console.log(`  取得に失敗しました: ${message}`);
+      failed.push(symbol);
+    }
+  }
 
   console.log("");
+  if (failed.length > 0) console.log(`取得できなかった銘柄: ${failed.join(", ")}`);
+  const done = args.symbols.filter((s) => !failed.includes(s));
+  if (done.length === 0) return;
+
   console.log("バックテスト:");
+  const first = done[0].toLowerCase();
   console.log(
-    `  npm run backtest -- --symbol ${args.symbol} ` +
-      `--csv-1h ${args.outDir}/${args.symbol.toLowerCase()}_h1_utc.csv ` +
-      `--csv-daily ${args.outDir}/${args.symbol.toLowerCase()}_d1_utc.csv`,
+    `  npm run backtest -- --symbol ${done[0].toUpperCase()} ` +
+      `--csv-1h ${args.outDir}/${first}_h1_utc.csv --csv-daily ${args.outDir}/${first}_d1_utc.csv`,
   );
+  console.log("エントリー仮説の検証（日足・全銘柄）:");
+  console.log(`  npx tsx scripts/hypothesis.ts --timeframe daily --dir ${args.outDir}`);
 }
 
 main().catch((error) => {

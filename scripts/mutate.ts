@@ -391,6 +391,42 @@ const MUTATIONS: Mutation[] = [
     find: "  for (let i = Math.max(fromIndex, 250); i < Math.min(toIndex, ctx.candles.length - 1); i++) {",
     replace: "  for (let i = 250; i < Math.min(toIndex, ctx.candles.length - 1); i++) {",
   },
+  {
+    description: "仮説(日足): 20日ブレイクを19日で判定する",
+    file: "lib/hypotheses.ts",
+    find: "    const range = donchian(candles, i, 20);",
+    replace: "    const range = donchian(candles, i, 19);",
+  },
+  {
+    description: "仮説(日足): 移動平均クロスを水準判定にする",
+    file: "lib/hypotheses.ts",
+    find: "    if (fastPrev <= slowPrev && fast > slow) return \"BUY\";",
+    replace: "    if (fast > slow) return \"BUY\";",
+  },
+  {
+    description: "仮説(日足): 時系列モメンタムを毎日入り直す形にする",
+    file: "lib/hypotheses.ts",
+    find: "    if (prev <= 0 && now > 0) return \"BUY\";",
+    replace: "    if (now > 0) return \"BUY\";",
+  },
+  {
+    description: "仮説(日足): 短期逆張りから長期の方向の条件を落とす",
+    file: "lib/hypotheses.ts",
+    find: "    if (price > slow && r < 10) return \"BUY\";",
+    replace: "    if (r < 10) return \"BUY\";",
+  },
+  {
+    description: "仮説(日足): インサイドバーの判定を常に真にする",
+    file: "lib/hypotheses.ts",
+    find: "    const isInside = prev.high <= before.high && prev.low >= before.low;",
+    replace: "    const isInside = true;",
+  },
+  {
+    description: "仮説(日足): 月初の判定を翌足の日付から求める（先読み）",
+    file: "lib/hypotheses.ts",
+    find: "    if (month === prevMonth) return null;",
+    replace: "    const nextMonth = candles[i + 1] ? new Date(candles[i + 1].timestamp).getUTCMonth() : month;\n    if (nextMonth === month) return null;",
+  },
   // --- CSV ---
   {
     description: "CSV: 空セルを0として受け入れる",

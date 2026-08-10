@@ -8,6 +8,13 @@
 import { describe, expect, it } from "vitest";
 import {
   ALL_RULES,
+  DAILY_RULES,
+  donchian20,
+  insideBarBreak,
+  maCross,
+  rsi2Pullback,
+  timeSeriesMomentum,
+  turnOfMonth,
   bbReversion,
   buildContext,
   londonBreakout,
@@ -20,6 +27,7 @@ import {
 import { calculateBollingerBands, type OHLC } from "../lib/technicalAnalysis";
 
 const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
 
 /** 与えた終値から、上下に少し幅を持たせた足を作る */
 function fromCloses(closes: number[], startTime = 0): OHLC[] {
@@ -76,12 +84,20 @@ describe("buildContext", () => {
 
 describe("未来の足を見ていないこと", () => {
   const closes = wiggle(600);
-  const candles = fromCloses(closes);
 
   it.each(ALL_RULES.map((r) => [r.id, r] as const))(
     "%s は後ろの足を書き換えても判断が変わらない",
     (_id, rule) => {
       const cut = 400;
+      // 日足のルールは月やカレンダーを見るので、足の間隔もそれに合わせる
+      const step = rule.timeframe === "daily" ? DAY : HOUR;
+      const candles = closes.map((close, i) => ({
+        timestamp: i * step,
+        open: i === 0 ? close : closes[i - 1],
+        high: Math.max(close, i === 0 ? close : closes[i - 1]) + 0.05,
+        low: Math.min(close, i === 0 ? close : closes[i - 1]) - 0.05,
+        close,
+      }));
 
       const full = buildContext(candles);
       const decisionsFull: (string | null)[] = [];
@@ -236,3 +252,159 @@ function setCandleClose(candles: OHLC[], index: number, close: number): OHLC[] {
   copy[index] = { ...copy[index], close };
   return copy;
 }
+
+// ============================================================
+// 日足のルール
+// ============================================================
+describe("日足のルール", () => {
+  /** 日足間隔の足を作る */
+  function daily(closes: number[], startTime = Date.UTC(2015, 0, 1)): OHLC[] {
+    return closes.map((close, i) => ({
+      timestamp: startTime + i * DAY,
+      open: i === 0 ? close : closes[i - 1],
+      high: Math.max(close, i === 0 ? close : closes[i - 1]) + 0.05,
+      low: Math.min(close, i === 0 ? close : closes[i - 1]) - 0.05,
+      close,
+    }));
+  }
+
+  it("20日ブレイクアウトは20日の外に出た足だけで入る", () => {
+    const closes = wiggle(120, 31);
+    const candles = daily(closes);
+    const i = 100;
+
+    // 直前20本の最高値より高く終える足にする
+    const priorHigh = Math.max(...candles.slice(i - 20, i).map((c) => c.high));
+    const broken = candles.map((c, j) =>
+      j === i ? { ...c, close: priorHigh + 1, high: priorHigh + 1.1 } : c,
+    );
+    expect(donchian20.decide({ ...buildContext(broken), i })).toBe("BUY");
+
+    // レンジ内に収まる足では入らない
+    const priorLow = Math.min(...candles.slice(i - 20, i).map((c) => c.low));
+    const inside = candles.map((c, j) =>
+      j === i ? { ...c, close: (priorHigh + priorLow) / 2 } : c,
+    );
+    expect(donchian20.decide({ ...buildContext(inside), i })).toBeNull();
+
+    // ちょうど20本前だけが突出している形。19本しか見ないと
+    // 「抜けた」と誤判定するので、期間の長さが効いていることが分かる
+    const spikeAt20 = candles.map((c, j) =>
+      j === i - 20
+        ? { ...c, high: priorHigh + 10, close: priorHigh + 9 }
+        : j === i
+          ? { ...c, close: priorHigh + 5, high: priorHigh + 5.1 }
+          : c,
+    );
+    expect(donchian20.decide({ ...buildContext(spikeAt20), i })).toBeNull();
+  });
+
+  it("50日/200日クロスは、水準ではなく交差した日だけで入る", () => {
+    const ctx = buildContext(daily(wiggle(300, 37)));
+    const i = 250;
+
+    const crossUp = {
+      ...ctx,
+      ema50: setAt(setAt(ctx.ema50, i - 1, 99), i, 101),
+      ema200: setAt(setAt(ctx.ema200, i - 1, 100), i, 100),
+      i,
+    };
+    expect(maCross.decide(crossUp)).toBe("BUY");
+
+    // 交差せず上にいるだけなら入らない
+    const alreadyAbove = {
+      ...ctx,
+      ema50: setAt(setAt(ctx.ema50, i - 1, 101), i, 102),
+      ema200: setAt(setAt(ctx.ema200, i - 1, 100), i, 100),
+      i,
+    };
+    expect(maCross.decide(alreadyAbove)).toBeNull();
+  });
+
+  it("時系列モメンタムは符号が変わった日だけで入る", () => {
+    // 63本前を跨いで符号が反転する形を作る
+    const closes = Array.from({ length: 200 }, (_, i) => 100 + i * 0.01);
+    const candles = daily(closes);
+    const ctx = buildContext(candles);
+
+    // 単調増加なので、どの日も「63日前より上」。符号は変わらないので入らない
+    expect(timeSeriesMomentum.decide({ ...ctx, i: 150 })).toBeNull();
+
+    // 前日だけ63日前を下回るようにすると、その翌日が反転の日になる
+    const flipped = [...closes];
+    flipped[149 - 63] = flipped[149] + 1;
+    const ctx2 = buildContext(daily(flipped));
+    expect(timeSeriesMomentum.decide({ ...ctx2, i: 150 })).toBe("BUY");
+  });
+
+  it("短期逆張りは長期の方向と逆側には入らない", () => {
+    const ctx = buildContext(daily(wiggle(300, 41)));
+    const i = 250;
+    const price = ctx.candles[i].close;
+
+    expect(
+      rsi2Pullback.decide({
+        ...ctx, ema200: setAt(ctx.ema200, i, price - 1), rsi2: setAt(ctx.rsi2, i, 5), i,
+      }),
+    ).toBe("BUY");
+    // 200日線の上でRSIが下がりきっていなければ入らない
+    expect(
+      rsi2Pullback.decide({
+        ...ctx, ema200: setAt(ctx.ema200, i, price - 1), rsi2: setAt(ctx.rsi2, i, 20), i,
+      }),
+    ).toBeNull();
+
+    // RSIが下がりきっていても、200日線の下なら買わない（流れに逆らわない）
+    expect(
+      rsi2Pullback.decide({
+        ...ctx, ema200: setAt(ctx.ema200, i, price + 1), rsi2: setAt(ctx.rsi2, i, 5), i,
+      }),
+    ).toBeNull();
+  });
+
+  it("インサイドバーは前日が前々日の値幅に収まっている場合だけ", () => {
+    const closes = wiggle(120, 43);
+    const base = daily(closes);
+    const i = 100;
+
+    const withInside = base.map((c, j) => {
+      if (j === i - 2) return { ...c, high: 200, low: 100 };
+      if (j === i - 1) return { ...c, high: 180, low: 120 };
+      if (j === i) return { ...c, close: 185 }; // 前日の高値を超えて終える
+      return c;
+    });
+    expect(insideBarBreak.decide({ ...buildContext(withInside), i })).toBe("BUY");
+
+    // 前日が前々日からはみ出していればインサイドではない。
+    // 前日の高値を超えて終えていても入らないことまで確かめる
+    const notInside = withInside.map((c, j) =>
+      j === i - 1 ? { ...c, high: 210 } : j === i ? { ...c, close: 215 } : c,
+    );
+    expect(insideBarBreak.decide({ ...buildContext(notInside), i })).toBeNull();
+  });
+
+  it("月初は月が変わった最初の足だけで入る", () => {
+    // 2015-01-01 から日足。月が変わる位置を探す
+    const candles = daily(wiggle(200, 47));
+    const ctx = buildContext(candles);
+
+    let firstOfMonth = -1;
+    for (let i = 30; i < candles.length; i++) {
+      const month = new Date(candles[i].timestamp).getUTCMonth();
+      const prev = new Date(candles[i - 1].timestamp).getUTCMonth();
+      if (month !== prev) {
+        firstOfMonth = i;
+        break;
+      }
+    }
+    expect(firstOfMonth).toBeGreaterThan(0);
+
+    expect(turnOfMonth.decide({ ...ctx, i: firstOfMonth })).not.toBeNull();
+    // 同じ月の中の足では入らない
+    expect(turnOfMonth.decide({ ...ctx, i: firstOfMonth + 1 })).toBeNull();
+  });
+
+  it("日足のルールはすべて timeframe が daily になっている", () => {
+    for (const rule of DAILY_RULES) expect(rule.timeframe).toBe("daily");
+  });
+});
