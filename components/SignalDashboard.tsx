@@ -39,6 +39,13 @@ const SIGNAL_STYLES: Record<
   },
 };
 
+/**
+ * この画面で使ってよい最も薄い文字色は `text-slate-400`。
+ *
+ * `text-slate-500` は12pxでコントラスト 3.92:1 にしかならず、下限の4.5:1を
+ * 割る。axe-core で一度直したあと、新しく書いた箇所でまた3件入れてしまった。
+ * 薄くしたくなったら、色ではなく余白か配置で差をつけること。
+ */
 const TREND_LABELS: Record<string, string> = {
   UP: "上昇",
   DOWN: "下降",
@@ -111,9 +118,9 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-50">自動シグナル判定エンジン</h1>
+          <h1 className="text-2xl font-bold text-slate-50">FX戦略 検証ツール</h1>
           <p className="mt-1 text-sm text-slate-400">
-            マルチタイムフレーム（1H / 4H / 8H / 日足）の15条件を自動判定します
+            手法が満たすべき水準を先に出し、そのうえで判定を検証します
           </p>
         </div>
 
@@ -161,7 +168,7 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
         live region にすると更新のたびに全項目を読み上げてしまう。
       */}
       <main className="space-y-6" aria-busy={loading}>
-        <NoEdgeWarning />
+        <FindingsSummary />
 
         <p className="sr-only" role="status" aria-live="polite">
           {data
@@ -191,8 +198,23 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
             </div>
           )}
 
+          {data.breakEven && (
+            <section className="rounded-xl border border-sky-900/60 bg-sky-950/20 p-5">
+              <h2 className="text-sm font-semibold text-slate-100">
+                判定を見る前に — この設定で満たすべき水準
+              </h2>
+              <p className="mt-1 text-xs text-slate-400">
+                損切り幅とコストだけで決まる数字です。相場が何をするかに関係なく成り立ちます。
+              </p>
+              <BreakEvenNote breakEven={data.breakEven} costPips={data.assumedCostPips} />
+            </section>
+          )}
+
           <section className="grid gap-4 lg:grid-cols-3">
             <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5 lg:col-span-2">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                検証対象: 15条件シグナル
+              </p>
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <p className="text-sm text-slate-400">{data.symbolLabel}</p>
@@ -245,10 +267,6 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
                 <Stat label="20EMA" value={data.analysis.ema20.toFixed(data.digits)} />
                 <Stat label="200EMA" value={data.analysis.ema200.toFixed(data.digits)} />
               </dl>
-
-              {data.breakEven && (
-                <BreakEvenNote breakEven={data.breakEven} costPips={data.assumedCostPips} />
-              )}
 
               {data.signal === "WAIT" && <WaitFrequencyNote />}
             </div>
@@ -427,50 +445,55 @@ function Freshness({ latestCandleTime }: { latestCandleTime: number | null }) {
  * ほとんど取り逃す頻度でしか出ない、というのがこの戦略の性質になる。
  */
 /**
- * 実データでの検証結果。
+ * このリポジトリで実データを使って分かったこと。
  *
- * 画面はBUY/SELLを断定的に出すので、それが何に裏打ちされているかを
- * 同じ画面に置かないと、判定が根拠のあるものに見えてしまう。
- * ドル円9年4か月・440トレードで勝率35.0%・PF 1.05、同じ値動きに対する
- * ランダムエントリー（30.9〜37.3%）と区別がつかなかった。
+ * 以前はこれを「警告」として判定バッジの上に貼っていた。だが警告2枚の下に
+ * 大きくBUY/SELLが出ている画面は、読む人にどちらを信じればいいのか
+ * 伝えられない。判定を主役に据えたまま「信じるな」と書くのは矛盾になる。
  *
- * この一文を消してよくなるのは、実データで優位性が確認できたときだけ。
+ * 検証で残ったのは判定ではなく検証の手順そのものだったので、
+ * 分かったことを画面の入口に置き、判定は「検証対象の実例」に降ろした。
  */
-function NoEdgeWarning() {
+function FindingsSummary() {
   return (
-    <div className="rounded-lg border border-amber-700/60 bg-amber-950/40 px-4 py-3 text-sm text-amber-100">
-      <p className="font-semibold">
-        この判定ロジックに、実データ上の優位性は確認できていません。
+    <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
+      <h2 className="text-sm font-semibold text-slate-100">実データで分かったこと</h2>
+      <dl className="mt-3 grid gap-x-6 gap-y-3 text-xs leading-relaxed sm:grid-cols-3">
+        <div>
+          <dt className="font-semibold text-slate-300">15条件の判定は機能しません</dt>
+          <dd className="mt-1 text-slate-400">
+            ドル円9年4か月・440トレードで勝率
+            <span className="tabular text-slate-300"> 35.0% </span>・PF
+            <span className="tabular text-slate-300"> 1.05</span>。
+            エントリーだけをランダムにした対照（30.9〜37.3%）と区別がつきませんでした。
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-slate-300">別の入り方も14通り試しました</dt>
+          <dd className="mt-1 text-slate-400">
+            1時間足7件・日足7件を12通貨ペアで検証。
+            決済を外して測っても、35通り中 p&lt;0.05 は2件（偶然の期待値1.8件）。
+            <span className="text-slate-300">価格から方向は当てられませんでした。</span>
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-slate-300">残ったのは相場付きの話でした</dt>
+          <dd className="mt-1 text-slate-400">
+            唯一残った「月初の逆張り」を1971年からの22通貨で確認すると、
+            直近14年は有効・その前の40年は逆向き。符号は5〜15年周期で入れ替わります。
+          </dd>
+        </div>
+      </dl>
+      <p className="mt-4 border-t border-slate-800 pt-3 text-xs text-slate-400">
+        だからこのツールは<strong className="text-slate-200">当てるためのもの</strong>ではなく、
+        <strong className="text-slate-200">手法が水準を満たしているかを判定するためのもの</strong>です。
+        下の判定は、その検証にかけた実例として置いてあります。
+        <span className="text-slate-400">　資金を入れる根拠にはなりません。</span>
       </p>
-      <p className="mt-1.5 text-xs leading-relaxed text-amber-200/90">
-        ドル円 2012-11〜2022-03 の440トレードで勝率
-        <span className="tabular"> 35.0% </span>・PF
-        <span className="tabular"> 1.05</span>、最大ドローダウン
-        <span className="tabular"> 1110 pips</span>。エントリーだけをランダムにした
-        対照実験（勝率 30.9〜37.3%）と区別がつきませんでした。
-        表示している売買プランは検証用で、資金を入れる根拠にはなりません。
-      </p>
-      <p className="mt-1.5 text-xs leading-relaxed text-amber-200/90">
-        別の入り方も14通り試しました（1時間足7件・日足7件 × 12通貨ペア）。
-        残ったのは「月初に前月と逆へ入る」1件だけで、1971年からの22通貨で
-        確かめると<strong>直近14年は有効・その前の40年は逆向き</strong>でした。
-        優位性ではなく相場付きです。検証の手順は README にあります。
-      </p>
-    </div>
+    </section>
   );
 }
 
-/**
- * その設定で損益が±0になる的中率。
- *
- * 売買プランの真下に置く。エントリーの根拠より先に必要なのは
- * 「この損切り幅とこのコストで、何%当てれば±0なのか」という水準で、
- * それを超える的中率が実データで確認できていないなら、条件が
- * どれだけ揃っていても期待値はマイナスになる。
- *
- * この画面の判定ロジックは実データで35.0%だった。表示される水準は
- * たいていそれより高い。**そう見えるのが正しい。**
- */
 function BreakEvenNote({
   breakEven,
   costPips,
@@ -508,7 +531,7 @@ function BreakEvenNote({
           損切りを広げるか、上位足に移すとこの比率は下がります。
         </p>
       )}
-      <p className="mt-1.5 text-slate-500">
+      <p className="mt-1.5 text-slate-400">
         コストは環境変数 ASSUMED_COST_PIPS で自分の口座の値に変えられます。
       </p>
     </div>
