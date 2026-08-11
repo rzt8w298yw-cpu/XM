@@ -23,6 +23,15 @@ export interface StrategyConfig {
   accountBalance: number;
   /** 1トレードで許容する損失の割合（%） */
   riskPercent: number;
+  /**
+   * 往復のコスト（pips）。スプレッド + 滑り。
+   *
+   * 損益分岐の的中率はこの値で決まる。既定はXMのスタンダード口座の
+   * ドル円で実際にかかるあたり（1.8 + 0.5）。**銘柄と口座種別で変わるので、
+   * 自分の値に置き換えること。** ここを小さく見積もると、成立していない
+   * 手法が成立しているように見える。
+   */
+  assumedCostPips: number;
 }
 
 export const DEFAULT_STRATEGY: StrategyConfig = {
@@ -31,6 +40,7 @@ export const DEFAULT_STRATEGY: StrategyConfig = {
   riskRewardRatio: 2,
   accountBalance: 0,
   riskPercent: 2,
+  assumedCostPips: 2.3,
 };
 
 /** 環境変数名と、その値が満たすべき範囲 */
@@ -43,6 +53,7 @@ const NUMERIC_SETTINGS = {
   TRADE_RISK_REWARD: { min: 0.1, max: 20 },
   ACCOUNT_BALANCE: { min: 0, max: 1_000_000_000_000 },
   RISK_PERCENT: { min: 0.01, max: 100 },
+  ASSUMED_COST_PIPS: { min: 0, max: 100 },
 } as const;
 
 type SettingName = keyof typeof NUMERIC_SETTINGS;
@@ -97,6 +108,7 @@ export function loadStrategyConfig(
     riskRewardRatio: read("TRADE_RISK_REWARD", DEFAULT_STRATEGY.riskRewardRatio),
     accountBalance: read("ACCOUNT_BALANCE", DEFAULT_STRATEGY.accountBalance),
     riskPercent: read("RISK_PERCENT", DEFAULT_STRATEGY.riskPercent),
+    assumedCostPips: read("ASSUMED_COST_PIPS", DEFAULT_STRATEGY.assumedCostPips),
   };
 
   // BUYの下限がSELLの下限を上回るような組み合わせ自体は成立するので、

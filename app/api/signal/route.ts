@@ -4,6 +4,7 @@ import { fetchMarketData, getSymbolSpec, SYMBOLS } from "@/lib/marketData";
 import { buildTradePlan } from "@/lib/tradePlan";
 import { loadStrategyConfig } from "@/lib/strategyConfig";
 import { buildLotPlan } from "@/lib/lotPlan";
+import { requiredAccuracy } from "@/lib/edgeMath";
 
 // 毎リクエスト最新のレートを取りに行くのでキャッシュしない
 export const dynamic = "force-dynamic";
@@ -55,6 +56,27 @@ export async function GET(request: Request) {
         })
       : null;
 
+    /**
+     * その損切り幅とコストで、損益が±0になる的中率。
+     *
+     * 判定と一緒に出す。エントリーの根拠より先に「この設定で何%当てれば
+     * ±0なのか」が要る。実データで確認できた的中率がこれを超えていない
+     * 限り、どれだけ条件が揃っていても期待値はマイナスになる。
+     */
+    // WAITのときも出す。この水準はエントリーの前にこそ要る数字で、
+    // シグナルが出てから見るものではない
+    const stopPips =
+      tradePlan?.stopPips ??
+      (result.analysis.currentATR * strategy.atrStopMultiplier) / spec.pipSize;
+    const breakEven =
+      Number.isFinite(stopPips) && stopPips > 0
+        ? requiredAccuracy({
+            stopDistancePips: stopPips,
+            riskRewardRatio: strategy.riskRewardRatio,
+            costPips: strategy.assumedCostPips,
+          })
+        : null;
+
     return NextResponse.json({
       symbol: spec.id,
       symbolLabel: spec.label,
@@ -71,6 +93,8 @@ export async function GET(request: Request) {
       latestCandleTime: market.candles1H.at(-1)?.timestamp ?? null,
       tradePlan,
       lotPlan,
+      breakEven,
+      assumedCostPips: strategy.assumedCostPips,
       ...result,
     });
   } catch (error) {

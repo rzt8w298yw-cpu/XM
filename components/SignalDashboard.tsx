@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SignalType } from "@/lib/autoSignalEngine";
 import type { SignalApiResponse } from "@/lib/types";
+import type { RequiredAccuracy } from "@/lib/edgeMath";
 import { describeCandleAge } from "@/lib/marketData";
 import ConditionList from "./ConditionList";
 import PriceChart from "./PriceChart";
@@ -245,6 +246,10 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
                 <Stat label="200EMA" value={data.analysis.ema200.toFixed(data.digits)} />
               </dl>
 
+              {data.breakEven && (
+                <BreakEvenNote breakEven={data.breakEven} costPips={data.assumedCostPips} />
+              )}
+
               {data.signal === "WAIT" && <WaitFrequencyNote />}
             </div>
 
@@ -450,6 +455,61 @@ function NoEdgeWarning() {
         残ったのは「月初に前月と逆へ入る」1件だけで、1971年からの22通貨で
         確かめると<strong>直近14年は有効・その前の40年は逆向き</strong>でした。
         優位性ではなく相場付きです。検証の手順は README にあります。
+      </p>
+    </div>
+  );
+}
+
+/**
+ * その設定で損益が±0になる的中率。
+ *
+ * 売買プランの真下に置く。エントリーの根拠より先に必要なのは
+ * 「この損切り幅とこのコストで、何%当てれば±0なのか」という水準で、
+ * それを超える的中率が実データで確認できていないなら、条件が
+ * どれだけ揃っていても期待値はマイナスになる。
+ *
+ * この画面の判定ロジックは実データで35.0%だった。表示される水準は
+ * たいていそれより高い。**そう見えるのが正しい。**
+ */
+function BreakEvenNote({
+  breakEven,
+  costPips,
+}: {
+  breakEven: RequiredAccuracy;
+  costPips: number;
+}) {
+  const heavy = breakEven.costAsShareOfStop > 10;
+  return (
+    <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950/40 p-3 text-xs leading-relaxed">
+      <p className="font-semibold text-slate-300">この設定で損益が±0になる的中率</p>
+      <dl className="mt-2 space-y-1">
+        <div className="flex justify-between gap-3">
+          <dt className="text-slate-400">コストが無ければ</dt>
+          <dd className="tabular text-slate-300">{breakEven.idealWinRate.toFixed(1)}%</dd>
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt className="text-slate-400">往復{costPips} pips のコストで</dt>
+          <dd className={`tabular font-semibold ${heavy ? "text-amber-300" : "text-slate-100"}`}>
+            {breakEven.requiredWinRate.toFixed(1)}%
+          </dd>
+        </div>
+      </dl>
+      <p className="mt-2 text-slate-400">
+        この判定ロジックの実測は
+        <span className="tabular text-slate-300"> 35.0% </span>
+        （ドル円9年4か月・440件）。
+        {breakEven.requiredWinRate > 35
+          ? "この設定では届いていません。"
+          : "この設定なら水準は超えますが、優位性の確認は別の話です。"}
+      </p>
+      {heavy && (
+        <p className="mt-1.5 text-amber-300/90">
+          コストが損切り幅の {breakEven.costAsShareOfStop.toFixed(0)}% を占めています。
+          損切りを広げるか、上位足に移すとこの比率は下がります。
+        </p>
+      )}
+      <p className="mt-1.5 text-slate-500">
+        コストは環境変数 ASSUMED_COST_PIPS で自分の口座の値に変えられます。
       </p>
     </div>
   );

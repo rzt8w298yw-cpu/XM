@@ -1,6 +1,7 @@
 import type { SignalResult } from "./autoSignalEngine";
 import type { TradePlan } from "./tradePlan";
 import type { LotPlan } from "./lotPlan";
+import type { RequiredAccuracy } from "./edgeMath";
 
 /** /api/signal のレスポンス形状 */
 export interface SignalApiResponse extends SignalResult {
@@ -14,6 +15,10 @@ export interface SignalApiResponse extends SignalResult {
   latestCandleTime: number | null;
   tradePlan: TradePlan | null;
   lotPlan: LotPlan | null;
+  /** その損切り幅とコストで損益が±0になる的中率 */
+  breakEven: RequiredAccuracy | null;
+  /** 計算に使った往復コスト（pips） */
+  assumedCostPips: number;
 }
 
 export interface SignalApiError {

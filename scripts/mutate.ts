@@ -470,6 +470,59 @@ const MUTATIONS: Mutation[] = [
     find: "  const useStops = cfg.useStops !== false;",
     replace: "  const useStops = true;",
   },
+  // --- 勝つために必要な数字 ---
+  {
+    description: "必要的中率: コストを足さない（必要水準が低く見える）",
+    file: "lib/edgeMath.ts",
+    find: "  const requiredWinRate = ((stop + cost) / (target + stop)) * 100;",
+    replace: "  const requiredWinRate = (stop / (target + stop)) * 100;",
+  },
+  {
+    description: "必要的中率: 利確幅にリスクリワードを掛けない",
+    file: "lib/edgeMath.ts",
+    find: "  const target = stop * rr;",
+    replace: "  const target = stop;",
+  },
+  {
+    description: "必要件数: 二乗を取らない（必要件数が桁で小さくなる）",
+    file: "lib/edgeMath.ts",
+    find: "  const trades = Math.ceil((z / ratio) ** 2);",
+    replace: "  const trades = Math.ceil(z / ratio);",
+  },
+  {
+    description: "必要件数: 期待値がマイナスでも件数を返す",
+    file: "lib/edgeMath.ts",
+    find: "  if (!Number.isFinite(expectancyPips) || expectancyPips <= 0) {",
+    replace: "  if (false) {",
+  },
+  {
+    description: "破産: 賭け金を残高比ではなく固定にする",
+    file: "lib/edgeMath.ts",
+    find: "      const stake = balance * risk;",
+    replace: "      const stake = risk;",
+  },
+  {
+    description: "破産: 破産水準に触れても続行する",
+    file: "lib/edgeMath.ts",
+    find: "      if (balance <= ruinLevel) {",
+    replace: "      if (false) {",
+  },
+  {
+    description: "破産: 期待値の計算からリスクリワードを落とす",
+    file: "lib/edgeMath.ts",
+    find: "  const edgePerTrade = p * risk * input.riskRewardRatio - (1 - p) * risk;",
+    replace: "  const edgePerTrade = p * risk - (1 - p) * risk;",
+  },
+  // `maxSafeRiskPercent` の break を continue にする変更は入れていない。
+  // 破産確率はリスク割合に対して単調に上がるので、打ち切っても最後まで
+  // 見ても答えが変わらない（400通りの種で探しても差が出なかった）。
+  // 何も検証しないミューテーションは、通っても落ちても意味が無い。
+  {
+    description: "符号の監視: 直前の窓と比べず、常に反転なしとする",
+    file: "lib/edgeMath.ts",
+    find: "    Math.sign(latest.mean) !== Math.sign(previous.mean);",
+    replace: "    false;",
+  },
   // --- CSV ---
   {
     description: "CSV: 空セルを0として受け入れる",
