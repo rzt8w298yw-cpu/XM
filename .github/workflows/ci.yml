@@ -1,0 +1,54 @@
+# 型・テスト・ビルドを push と PR で回す。
+#
+# ここに置いてある検証（テスト337件・型・ビルド）は、いままで手で実行した
+# ことを覚えているかどうかに依存していた。次に誰が触っても壊れたまま進めない
+# ように、機械に持たせる。
+#
+# `npm run lint` は入れていない。このリポジトリの `next lint` は ESLint の
+# 設定が無く、実行すると対話プロンプトを出して止まる。CIに入れると固まるので、
+# 設定を用意するまで対象外にしてある。
+name: CI
+
+on:
+  push:
+    # 既定ブランチが main でも claude/* でも動くようにしておく
+    branches: ["main", "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: 依存関係
+        run: npm ci
+
+      - name: 型チェック
+        run: npm run typecheck
+
+      - name: テスト
+        run: npm test
+
+      - name: ビルド
+        run: npm run build
+
+      # 一度axeで直したあと、新しく書いた箇所で同じ色をまた3件入れてしまった。
+      # ブラウザを起動する監査はCIには重いので、既知の失敗パターンだけを止める。
+      - name: 文字色のコントラスト（既知の再発を止める）
+        run: |
+          if grep -rn "text-slate-500" components/ app/; then
+            echo ""
+            echo "text-slate-500 は12pxでコントラスト 3.92:1 になり、下限の4.5:1 を割ります。"
+            echo "この画面で使ってよい最も薄い文字色は text-slate-400 です。"
+            echo "薄く見せたい場合は、色ではなく余白か配置で差をつけてください。"
+            exit 1
+          fi

@@ -1,0 +1,34 @@
+# ミューテーションテスト。
+#
+# テストの件数は品質の証明にならない。わざとバグを入れてテストが落ちるかを
+# 確かめ、落ちなかったもの＝テストの穴を洗い出す。
+#
+# 83件のミューテーションそれぞれでテスト全体を回すので数分〜十数分かかる。
+# push のたびに回すには重いので、週1回と手動実行にしてある。
+name: ミューテーションテスト
+
+on:
+  schedule:
+    # 毎週月曜 03:00 UTC（JST 12:00）
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+jobs:
+  mutate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # スクリプトは開始前にワーキングツリーが綺麗であることを確認する。
+      # チェックアウト直後なので条件を満たす。
+      - name: ミューテーション
+        run: npm run mutate
