@@ -541,6 +541,43 @@ const MUTATIONS: Mutation[] = [
     find: "          stopDistancePips: avgLossPips,\n          riskRewardRatio: avgWinPips / avgLossPips,",
     replace: "          stopDistancePips: avgLossPips,\n          riskRewardRatio: 2,",
   },
+  // --- 監視の健康状態 ---
+  {
+    description: "健康: 一部が判定できていれば異常としない条件を反転",
+    file: "lib/health.ts",
+    find: "  if (outcome.evaluated > 0) return \"ok\";",
+    replace: "  if (outcome.evaluated >= 0) return \"ok\";",
+  },
+  {
+    description: "健康: 状態が変わっても知らせない",
+    file: "lib/health.ts",
+    find: "  if (status !== previous.status) {",
+    replace: "  if (false) {",
+  },
+  {
+    description: "健康: 止まっている間も毎回鳴らす",
+    file: "lib/health.ts",
+    find: "  const quietFor = now - previous.lastNotifiedAt;",
+    replace: "  const quietFor = Infinity;",
+  },
+  {
+    description: "健康: 生存確認を0で無効にできなくする",
+    file: "lib/health.ts",
+    find: "  if (heartbeatMs > 0 && quietFor >= heartbeatMs) {",
+    replace: "  if (quietFor >= heartbeatMs) {",
+  },
+  {
+    description: "健康: 原因の多いほうではなく常に no_data と言う",
+    file: "lib/health.ts",
+    find: "  return outcome.noRealData >= outcome.failed ? \"no_data\" : \"failing\";",
+    replace: "  return \"no_data\";",
+  },
+  {
+    description: "健康: シグナルを送っても生存確認の時計を進めない",
+    file: "lib/health.ts",
+    find: "  return { ...state, lastNotifiedAt: now };",
+    replace: "  return state;",
+  },
   // --- CSV ---
   {
     description: "CSV: 空セルを0として受け入れる",

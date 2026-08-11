@@ -5,7 +5,9 @@
  *   npm run watch -- --once                # 1回だけ判定（cron / GitHub Actions 用）
  *   npm run watch -- --symbols USDJPY,GBPJPY --interval 300
  *   npm run watch -- --dry-run             # 送信せず標準出力に出す
- *   npm run watch -- --once --allow-synthetic  # Webhookの疎通確認（偽のシグナルを送る）
+ *   npm run watch -- --test-notification       # 送信先の設定を確かめる（1件送って終了）
+ *   npm run watch -- --heartbeat 12            # 12時間無音なら「動いています」を送る
+ *   npm run watch -- --heartbeat 0             # 生存確認を送らない
  *
  * 出したシグナルは --log のファイル（既定 .signal-log.jsonl）に追記する。
  * 後で `npm run reconcile` を実行すると、実際の値動きと突き合わせて
@@ -29,9 +31,18 @@ import {
 } from "../lib/signalState";
 import { appendSignalRecord } from "../lib/signalLog";
 import {
+  diffHealth,
+  markNotified,
+  INITIAL_HEALTH,
+  type CycleOutcome,
+  type HealthState,
+} from "../lib/health";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
   createConsoleNotifier,
   createWebhookNotifier,
   diffSignals,
+  systemNotification,
   type EvaluationInput,
   type Notifier,
 } from "../lib/notifier";
@@ -44,6 +55,10 @@ interface Args {
   logPath: string;
   dryRun: boolean;
   allowSynthetic: boolean;
+  /** 何も送らないままこの時間が過ぎたら生存を知らせる（時間）。0で無効 */
+  heartbeatHours: number;
+  /** 疎通確認の1件だけ送って終わる */
+  testNotification: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -92,6 +107,16 @@ function parseArgs(argv: string[]): Args {
     logPath: map.get("log") ?? ".signal-log.jsonl",
     dryRun: flags.has("dry-run"),
     allowSynthetic: flags.has("allow-synthetic"),
+    heartbeatHours: (() => {
+      const raw = map.get("heartbeat");
+      if (raw === undefined) return 24;
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new Error(`--heartbeat は0以上の数値で指定してください: ${raw}`);
+      }
+      return parsed;
+    })(),
+    testNotification: flags.has("test-notification"),
   };
 }
 
@@ -99,8 +124,11 @@ async function evaluateAll(
   symbolIds: string[],
   allowSynthetic: boolean,
   strategy: StrategyConfig,
-): Promise<EvaluationInput[]> {
+): Promise<{ evaluations: EvaluationInput[]; outcome: CycleOutcome }> {
   const evaluations: EvaluationInput[] = [];
+  // 「静か」と「壊れている」を区別するために、失敗の内訳を数える
+  let noRealData = 0;
+  let failed = 0;
 
   for (const symbolId of symbolIds) {
     const spec = getSymbolSpec(symbolId);
@@ -109,6 +137,7 @@ async function evaluateAll(
       if (market.source === "synthetic" && !allowSynthetic) {
         // 合成データのシグナルで通知を出すと誤解を招くので送らない
         console.warn(`${spec.label}: 実データを取得できないため通知を見送ります（${market.note}）`);
+        noRealData++;
         continue;
       }
 
@@ -135,22 +164,93 @@ async function evaluateAll(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`${spec.label}: 判定に失敗しました: ${message}`);
+      failed++;
     }
   }
 
-  return evaluations;
+  return {
+    evaluations,
+    outcome: {
+      total: symbolIds.length,
+      evaluated: evaluations.length,
+      noRealData,
+      failed,
+    },
+  };
+}
+
+/**
+ * 監視の健康状態を、シグナルの状態とは別のファイルに置く。
+ *
+ * `SignalState` は銘柄IDを鍵にした形なので、そこへ特別な鍵を混ぜると
+ * 銘柄と区別がつかなくなる。小さいので独立したファイルにする。
+ */
+function healthPathFor(statePath: string): string {
+  return statePath.replace(/\.json$/, "") + ".health.json";
+}
+
+function loadHealth(path: string): HealthState {
+  if (!existsSync(path)) return INITIAL_HEALTH;
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<HealthState>;
+    if (
+      (parsed.status === "ok" || parsed.status === "no_data" || parsed.status === "failing") &&
+      typeof parsed.since === "number" &&
+      typeof parsed.lastNotifiedAt === "number"
+    ) {
+      return { status: parsed.status, since: parsed.since, lastNotifiedAt: parsed.lastNotifiedAt };
+    }
+  } catch {
+    // 壊れていれば初期状態から数え直す。ここで落として監視ごと止めない
+  }
+  return INITIAL_HEALTH;
+}
+
+function saveHealth(path: string, state: HealthState): void {
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, JSON.stringify(state, null, 2), "utf8");
+  renameSync(tmp, path);
 }
 
 async function runOnce(args: Args, notifier: Notifier, strategy: StrategyConfig): Promise<void> {
   const stamp = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
-  const evaluations = await evaluateAll(args.symbols, args.allowSynthetic, strategy);
+  const { evaluations, outcome } = await evaluateAll(args.symbols, args.allowSynthetic, strategy);
 
   const summary = evaluations
     .map((e) => `${e.symbolId}=${e.result.signal}`)
     .join(" ");
   console.log(`[${stamp}] ${summary || "判定できた銘柄がありません"}`);
 
-  if (evaluations.length === 0) return;
+  /*
+   * 監視そのものの状態を先に片付ける。
+   *
+   * ここを判定できた場合だけに置くと、**全滅したときに何も起きない**という
+   * いちばん知らせたい状況で黙ることになる。以前がその作りだった。
+   */
+  const healthPath = healthPathFor(args.statePath);
+  const previousHealth = loadHealth(healthPath);
+  const now = Date.now();
+  const { notice, nextState: nextHealth } = diffHealth(previousHealth, outcome, {
+    heartbeatMs: args.heartbeatHours * 3_600_000,
+    now,
+  });
+
+  let healthToSave = nextHealth;
+  if (notice) {
+    try {
+      await notifier.send(systemNotification(notice.kind, notice.title, notice.body));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`監視状態の通知に失敗しました: ${message}`);
+      // 送れていないなら時計を進めない。次の周期でもう一度試す
+      healthToSave = { ...nextHealth, lastNotifiedAt: previousHealth.lastNotifiedAt };
+    }
+  }
+
+  if (evaluations.length === 0) {
+    saveHealth(healthPath, healthToSave);
+    return;
+  }
 
   const { state: previous, problem } = loadSignalState(args.statePath);
   if (problem !== null) {
@@ -163,6 +263,7 @@ async function runOnce(args: Args, notifier: Notifier, strategy: StrategyConfig)
   if (notifications.length === 0) {
     // 変化が無くても、最後に見た足の時刻は更新しておく
     saveSignalState(args.statePath, nextState);
+    saveHealth(healthPath, healthToSave);
     return;
   }
 
@@ -206,6 +307,10 @@ async function runOnce(args: Args, notifier: Notifier, strategy: StrategyConfig)
   // 送信に失敗したものがあれば状態を進めず、次回もう一度通知を試みる
   if (allSent) saveSignalState(args.statePath, nextState);
   else console.error("状態を更新しませんでした。次回の実行で再送を試みます。");
+
+  // シグナルを送ったなら、生存確認の時計も進める。
+  // 直後に「動いています」が来るのは無意味なため
+  saveHealth(healthPath, allSent ? markNotified(healthToSave, now) : healthToSave);
 }
 
 async function main() {
@@ -221,6 +326,36 @@ async function main() {
     console.warn("SIGNAL_WEBHOOK_URL が未設定です。標準出力に出力します。");
   }
 
+  /*
+   * 疎通確認。
+   *
+   * これが無いと、Webhookのアドレスを打ち間違えても気づくのは最初の
+   * シグナルが出たとき——平均4日後になる。`--allow-synthetic` は
+   * 疎通確認用と書いてあったが、シグナルが出なければ何も送らないので
+   * 確認の役に立っていなかった。
+   */
+  if (args.testNotification) {
+    const target = webhookUrl ? "Webhook" : "標準出力";
+    console.log(`疎通確認の通知を1件送ります（送信先: ${target}）。`);
+    try {
+      await notifier.send(
+        systemNotification(
+          "test",
+          "疎通確認",
+          "この通知が届いていれば、送信先の設定は正しく動いています。" +
+            "実際のシグナルは1銘柄あたり平均4.3日に1回しか出ません。" +
+            "静かな状態が続くのは正常です。",
+        ),
+      );
+      console.log("送信しました。届いているか確認してください。");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`送信に失敗しました: ${message}`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   // 最初のシグナルが出た瞬間に初めて失敗するのを避け、起動時に確かめる
   ensureStateWritable(args.statePath);
 
@@ -230,6 +365,11 @@ async function main() {
   }
   console.log(`状態ファイル: ${args.statePath}`);
   console.log(`記録ファイル: ${args.logPath}`);
+  console.log(
+    args.heartbeatHours > 0
+      ? `生存確認    : ${args.heartbeatHours}時間 何も送らなければ「動いています」を送る`
+      : "生存確認    : 無効（--heartbeat 0）",
+  );
   console.log(
     overrides.length > 0 ? `戦略設定  : ${overrides.join(" ")}` : "戦略設定  : 既定値",
   );

@@ -20,16 +20,51 @@ export interface SignalState {
   };
 }
 
-export type NotificationKind = "entry" | "cleared";
+/**
+ * 通知の種類。
+ *
+ * シグナル（entry / cleared）以外に、監視そのものの状態を伝えるものがある。
+ * 正常時の98.6%が無音になる作りなので、「静か」と「壊れている」を
+ * 受け取る側で区別できるようにするために要る。
+ */
+export type NotificationKind =
+  | "entry"
+  | "cleared"
+  /** 監視が止まっている */
+  | "problem"
+  /** 止まっていたものが戻った */
+  | "recovered"
+  /** 何も起きていないが動いている */
+  | "heartbeat"
+  /** 疎通確認 */
+  | "test";
 
 export interface Notification {
   kind: NotificationKind;
-  symbolId: string;
-  symbolLabel: string;
-  signal: SignalType;
-  previousSignal: SignalType;
+  /** 監視自体の知らせには銘柄が無い */
+  symbolId: string | null;
+  symbolLabel: string | null;
+  signal: SignalType | null;
+  previousSignal: SignalType | null;
   title: string;
   body: string;
+}
+
+/** 銘柄に紐づかない知らせ（監視の状態・疎通確認）を組み立てる */
+export function systemNotification(
+  kind: Extract<NotificationKind, "problem" | "recovered" | "heartbeat" | "test">,
+  title: string,
+  body: string,
+): Notification {
+  return {
+    kind,
+    symbolId: null,
+    symbolLabel: null,
+    signal: null,
+    previousSignal: null,
+    title,
+    body,
+  };
 }
 
 export interface EvaluationInput {
@@ -128,11 +163,28 @@ export interface Notifier {
  * それぞれが自分の知っているキーだけを使うので、URLを差し替えるだけで
  * どちらでも動く。
  */
+/** 種類が一目で分かるようにする。文字だけだと通知一覧で埋もれる */
+function emojiFor(notification: Notification): string {
+  switch (notification.kind) {
+    case "problem":
+      return "🛑";
+    case "recovered":
+      return "✅";
+    case "heartbeat":
+      return "💤";
+    case "test":
+      return "🔔";
+    case "cleared":
+      return "⚪";
+    default:
+      return notification.signal === "BUY" ? "🟢" : "🔴";
+  }
+}
+
 export function createWebhookNotifier(url: string): Notifier {
   return {
     async send(notification) {
-      const emoji =
-        notification.kind === "cleared" ? "⚪" : notification.signal === "BUY" ? "🟢" : "🔴";
+      const emoji = emojiFor(notification);
       const message = `${emoji} **${notification.title}**\n${notification.body}`;
 
       const controller = new AbortController();
