@@ -411,3 +411,115 @@ export function trackRegime(
 
   return { windows, currentSign, flipped, message };
 }
+
+// ============================================================
+// 5. 実績の判定
+// ============================================================
+
+export type TrackRecordVerdict =
+  | "件数不足"
+  | "損益分岐を下回る"
+  | "基準を超えている";
+
+export interface TrackRecordJudgement {
+  trades: number;
+  winRate: number;
+  /** 1トレードあたりの平均損益（pips） */
+  expectancyPips: number;
+  stdDevPips: number;
+  /** 勝ちトレードの平均（pips） */
+  avgWinPips: number;
+  /** 負けトレードの平均（pips、正の数） */
+  avgLossPips: number;
+  /** 実測の決済条件で損益が±0になる的中率（%） */
+  requiredWinRate: number;
+  /** 「運ではない」と言うのに要る件数 */
+  tradesNeeded: number;
+  verdict: TrackRecordVerdict;
+  message: string;
+}
+
+/**
+ * 決着したトレードの損益から、その実績が何を言えるのかを判定する。
+ *
+ * フォワードテストの出力は「勝率」と「合計pips」で終わりがちだが、
+ * その2つだけでは何も決まらない。決まるのは次の3つが揃ったとき。
+ *
+ *   - 実測の決済条件で、損益分岐の的中率がいくつか
+ *   - 実測の的中率がそれを超えているか
+ *   - 超えていたとして、それを言い切れるだけの件数があるか
+ *
+ * 3つ目が抜けると「20件やって勝ち越したから本物」になる。
+ * ここでは3つを同時に見て、足りないものを名指しする。
+ *
+ * `pipsPerTrade` はコスト控除後の実現損益（バックテストと同じ形）。
+ * `costPips` は損益分岐の計算に使う往復コスト。
+ */
+export function judgeTrackRecord(
+  pipsPerTrade: number[],
+  costPips: number,
+): TrackRecordJudgement {
+  const trades = pipsPerTrade.length;
+  if (trades === 0) {
+    return {
+      trades: 0, winRate: 0, expectancyPips: 0, stdDevPips: 0,
+      avgWinPips: 0, avgLossPips: 0, requiredWinRate: NaN, tradesNeeded: Infinity,
+      verdict: "件数不足",
+      message: "決着したトレードがありません",
+    };
+  }
+
+  const wins = pipsPerTrade.filter((p) => p > 0);
+  const losses = pipsPerTrade.filter((p) => p <= 0);
+  const winRate = (wins.length / trades) * 100;
+  const expectancyPips = pipsPerTrade.reduce((a, b) => a + b, 0) / trades;
+  const variance =
+    pipsPerTrade.reduce((s, p) => s + (p - expectancyPips) ** 2, 0) / trades;
+  const stdDevPips = Math.sqrt(variance);
+
+  const avgWinPips = wins.length === 0 ? 0 : wins.reduce((a, b) => a + b, 0) / wins.length;
+  const avgLossPips =
+    losses.length === 0 ? 0 : Math.abs(losses.reduce((a, b) => a + b, 0) / losses.length);
+
+  // 実測の勝ち負けの幅で損益分岐を出す。想定の損切り利確ではなく、
+  // 実際に起きた決済の形で測らないと、水準がずれる
+  const requiredWinRate =
+    avgWinPips > 0 && avgLossPips > 0
+      ? requiredAccuracy({
+          stopDistancePips: avgLossPips,
+          riskRewardRatio: avgWinPips / avgLossPips,
+          costPips,
+        }).requiredWinRate
+      : NaN;
+
+  const need = tradesNeededToConfirm({ expectancyPips, stdDevPips });
+  const tradesNeeded = need.trades;
+
+  let verdict: TrackRecordVerdict;
+  let message: string;
+
+  if (expectancyPips <= 0 || (Number.isFinite(requiredWinRate) && winRate < requiredWinRate)) {
+    verdict = "損益分岐を下回る";
+    message =
+      `的中率 ${winRate.toFixed(1)}% に対して、実測の決済条件での損益分岐は ` +
+      `${Number.isFinite(requiredWinRate) ? requiredWinRate.toFixed(1) : "—"}% です。` +
+      "件数を積んでも期待値はプラスになりません";
+  } else if (trades < tradesNeeded) {
+    verdict = "件数不足";
+    message =
+      `いまの成績なら「運ではない」と言うのに ${tradesNeeded.toLocaleString("en-US")} 件が要ります。` +
+      `あと ${(tradesNeeded - trades).toLocaleString("en-US")} 件です。` +
+      "ここで判断すると、勝っていても負けていても運を読んでいることになります";
+  } else {
+    verdict = "基準を超えている";
+    message =
+      `${trades} 件は、必要件数 ${tradesNeeded.toLocaleString("en-US")} 件を満たしています。` +
+      `損益分岐 ${requiredWinRate.toFixed(1)}% に対して的中率 ${winRate.toFixed(1)}% です`;
+  }
+
+  return {
+    trades, winRate, expectancyPips, stdDevPips,
+    avgWinPips, avgLossPips, requiredWinRate, tradesNeeded,
+    verdict, message,
+  };
+}

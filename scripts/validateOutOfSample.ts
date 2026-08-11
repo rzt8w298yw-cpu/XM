@@ -25,6 +25,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { trackRegime } from "../lib/edgeMath";
 import {
   collectMonthEffect,
   mean,
@@ -218,6 +219,35 @@ async function main() {
   console.log("  参考: 発見前をさらに分けたもの");
   for (const [from, to] of [[1971, 1985], [1985, 1999], [1999, 2012]] as const) {
     report(`  ${from}〜${to - 1}`, all.filter((o) => o.year >= from && o.year < to), from);
+  }
+
+  /*
+   * 符号の推移。
+   *
+   * 「効いていた向きが今も同じか」は、使い続けてよいかの判断そのもの。
+   * 表の数字を毎回読み直さなくても分かるよう、窓をずらして並べる。
+   *
+   * この効果は一度に反転したのではなく、55年かけて少しずつ動いた。
+   * だから見るべきは最新の窓の符号と、その1つ前との比較になる。
+   */
+  console.log("");
+  console.log("=".repeat(78));
+  console.log("符号の推移（いま使ってよいかの判断）");
+  console.log("=".repeat(78));
+  const regime = trackRegime(all, 5);
+  const scale = 0.25; // バーの1文字あたりの大きさ
+  for (const window of regime.windows) {
+    const bars = Math.min(Math.round(Math.abs(window.mean) / scale * 20), 30);
+    const bar = (window.mean < 0 ? "◀" : "▶").repeat(Math.max(bars, 1));
+    console.log(
+      `  ${window.label}  ${window.mean >= 0 ? "+" : ""}${window.mean.toFixed(3).padStart(6)}` +
+        `  ${String(window.samples).padStart(4)}件  ${bar}`,
+    );
+  }
+  console.log("");
+  console.log(`  ${regime.message}`);
+  if (regime.flipped) {
+    console.log("  ⚠ 符号が変わりました。この効果を使っているなら止める判断が要ります。");
   }
 
   console.log("");

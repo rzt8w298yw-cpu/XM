@@ -13,6 +13,8 @@
  */
 import { readFileSync } from "node:fs";
 import { parseCandleCsv } from "../lib/csv";
+import { judgeTrackRecord } from "../lib/edgeMath";
+import { loadStrategyConfig } from "../lib/strategyConfig";
 import { fetchMarketData, getSymbolSpec } from "../lib/marketData";
 import {
   readSignalLog,
@@ -164,10 +166,34 @@ async function main() {
   console.log("※ スプレッドは差し引いていません。バックテストの数字と比べる際は");
   console.log("   `--spread` ぶんだけこちらが有利に出ている点に注意してください。");
 
-  if (overall.resolved < 30) {
-    console.log("");
-    console.log(`※ 決着 ${overall.resolved}件では勝率の振れ幅が大きく、実力の判断には足りません。`);
-  }
+  /*
+   * ここまでは「何が起きたか」。この先が「それで何が言えるか」。
+   *
+   * 勝率と合計pipsだけでは何も決まらない。決まるのは、実測の決済条件での
+   * 損益分岐を超えているか、超えていたとしてそれを言い切れる件数があるか、
+   * の2つが揃ったとき。手で `npm run edge` に写さなくて済むよう、ここで出す。
+   */
+  const { config: strategy } = loadStrategyConfig();
+  const pipsPerTrade = all
+    .filter((r) => r.outcome === "take_profit" || r.outcome === "stop_loss")
+    .map((r) => r.pips ?? 0);
+  const judgement = judgeTrackRecord(pipsPerTrade, strategy.assumedCostPips);
+
+  console.log("");
+  console.log("=".repeat(76));
+  console.log("この記録で何が言えるか");
+  console.log("=".repeat(76));
+  console.log(`損益分岐の的中率  ${fmt(judgement.requiredWinRate)}%（実測の勝ち負けの幅とコスト ${strategy.assumedCostPips} pips から）`);
+  console.log(`  実測の的中率    ${fmt(judgement.winRate)}%`);
+  console.log(`  平均利益/損失   ${fmt(judgement.avgWinPips)} / ${fmt(judgement.avgLossPips)} pips`);
+  console.log(`  期待値          ${fmt(judgement.expectancyPips, 2)} pips　ばらつき ${fmt(judgement.stdDevPips)} pips`);
+  console.log(
+    `  必要件数（95%）  ${Number.isFinite(judgement.tradesNeeded) ? judgement.tradesNeeded.toLocaleString("en-US") : "—"}` +
+      `　いまの件数 ${judgement.trades}`,
+  );
+  console.log("");
+  console.log(`判定: ${judgement.verdict}`);
+  console.log(`  ${judgement.message}`);
 
   const resolved = all
     .filter((r) => r.outcome === "take_profit" || r.outcome === "stop_loss")

@@ -523,6 +523,24 @@ const MUTATIONS: Mutation[] = [
     find: "    Math.sign(latest.mean) !== Math.sign(previous.mean);",
     replace: "    false;",
   },
+  {
+    description: "実績判定: 損益分岐を下回っていても件数の話にする",
+    file: "lib/edgeMath.ts",
+    find: "  if (expectancyPips <= 0 || (Number.isFinite(requiredWinRate) && winRate < requiredWinRate)) {",
+    replace: "  if (false) {",
+  },
+  {
+    description: "実績判定: 件数が足りなくても「基準を超えている」と言う",
+    file: "lib/edgeMath.ts",
+    find: "  } else if (trades < tradesNeeded) {",
+    replace: "  } else if (false) {",
+  },
+  {
+    description: "実績判定: 損益分岐を想定のRRで出す（実測の幅を使わない）",
+    file: "lib/edgeMath.ts",
+    find: "          stopDistancePips: avgLossPips,\n          riskRewardRatio: avgWinPips / avgLossPips,",
+    replace: "          stopDistancePips: avgLossPips,\n          riskRewardRatio: 2,",
+  },
   // --- CSV ---
   {
     description: "CSV: 空セルを0として受け入れる",

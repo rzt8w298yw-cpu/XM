@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  judgeTrackRecord,
   maxSafeRiskPercent,
   requiredAccuracy,
   simulateRuin,
@@ -240,5 +241,65 @@ describe("trackRegime", () => {
     expect(status.windows).toHaveLength(0);
     expect(status.currentSign).toBe(0);
     expect(status.flipped).toBe(false);
+  });
+});
+
+describe("judgeTrackRecord", () => {
+  /** 勝ちと負けを指定の比率で並べる */
+  function record(wins: number, losses: number, winPips: number, lossPips: number): number[] {
+    return [
+      ...Array.from({ length: wins }, () => winPips),
+      ...Array.from({ length: losses }, () => -lossPips),
+    ];
+  }
+
+  it("決着が無ければ件数不足", () => {
+    const result = judgeTrackRecord([], 2);
+    expect(result.verdict).toBe("件数不足");
+    expect(result.trades).toBe(0);
+  });
+
+  it("損益分岐を下回っていれば、件数の話をしない", () => {
+    // 勝率30%・勝ち負け同幅 → 期待値マイナス
+    const result = judgeTrackRecord(record(30, 70, 100, 100), 2);
+    expect(result.verdict).toBe("損益分岐を下回る");
+    expect(result.message).toMatch(/件数を積んでも/);
+  });
+
+  it("勝っていても件数が足りなければ、そう言う", () => {
+    // 勝率55%・勝ち負け同幅 → 期待値プラスだが件数20では足りない
+    const result = judgeTrackRecord(record(11, 9, 100, 100), 2);
+    expect(result.expectancyPips).toBeGreaterThan(0);
+    expect(result.verdict).toBe("件数不足");
+    expect(result.tradesNeeded).toBeGreaterThan(result.trades);
+    expect(result.message).toMatch(/運を読んでいる/);
+  });
+
+  it("件数が足りていれば基準を超えていると言う", () => {
+    // 大きく勝ち越していれば必要件数は小さくなる
+    const result = judgeTrackRecord(record(800, 200, 100, 50), 2);
+    expect(result.verdict).toBe("基準を超えている");
+    expect(result.trades).toBeGreaterThanOrEqual(result.tradesNeeded);
+  });
+
+  it("実測の勝ち負けの幅から損益分岐を出す", () => {
+    // 平均利益100 / 平均損失80 → RR 1:1.25。コスト2なら (80+2)/(100+80) = 45.56%
+    // 既定のRR（1:2）を当てはめると 34.7% になるので、実測を使っていれば区別できる
+    const result = judgeTrackRecord(record(400, 600, 100, 80), 2);
+    expect(result.avgWinPips).toBeCloseTo(100, 6);
+    expect(result.avgLossPips).toBeCloseTo(80, 6);
+    expect(result.requiredWinRate).toBeCloseTo(45.5556, 3);
+  });
+
+  it("引き分けは負け側に数える", () => {
+    const result = judgeTrackRecord([0, 0, 100, -100], 2);
+    expect(result.winRate).toBeCloseTo(25, 6);
+  });
+
+  it("ばらつきは実現損益の散らばりから出す", () => {
+    // 全部同じ値なら散らばりは0
+    expect(judgeTrackRecord([50, 50, 50], 2).stdDevPips).toBeCloseTo(0, 10);
+    // 勝ち負けが混ざれば0にならない
+    expect(judgeTrackRecord(record(5, 5, 100, 100), 2).stdDevPips).toBeGreaterThan(0);
   });
 });
