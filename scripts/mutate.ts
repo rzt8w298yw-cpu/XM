@@ -652,6 +652,19 @@ const MUTATIONS: Mutation[] = [
     find: "if (raw === undefined || raw === \"\") return null;",
     replace: "if (raw === undefined) return null;",
   },
+  // --- 監視対象 ---
+  {
+    description: "監視: シグナル対象を全銘柄に広げる（ドル円だけの指定を無視）",
+    file: "lib/marketData.ts",
+    find: "const SIGNAL_SYMBOL_IDS = [\"USDJPY\"];",
+    replace: "const SIGNAL_SYMBOL_IDS = SYMBOLS.map((s) => s.id);",
+  },
+  {
+    description: "監視: シグナル対象を別の銘柄にすり替える",
+    file: "lib/marketData.ts",
+    find: "const SIGNAL_SYMBOL_IDS = [\"USDJPY\"];",
+    replace: "const SIGNAL_SYMBOL_IDS = [\"EURUSD\"];",
+  },
   // --- 窓を開けた足での約定 ---
   {
     description: "窓: 損切りを飛び越えて始まっても指定値で約定したことにする",

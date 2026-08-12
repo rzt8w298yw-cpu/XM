@@ -138,21 +138,33 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <label className="sr-only" htmlFor="symbol-select">
-            通貨ペア
-          </label>
-          <select
-            id="symbol-select"
-            value={symbol}
-            onChange={(event) => setSymbol(event.target.value)}
-            className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
-          >
-            {symbols.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          {/*
+            監視対象が1つなら選ばせない。選択肢が1件だけの <select> は
+            操作できるように見えて何も起きない。表示に落とす。
+          */}
+          {symbols.length > 1 ? (
+            <>
+              <label className="sr-only" htmlFor="symbol-select">
+                通貨ペア
+              </label>
+              <select
+                id="symbol-select"
+                value={symbol}
+                onChange={(event) => setSymbol(event.target.value)}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+              >
+                {symbols.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </>
+          ) : (
+            <span className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100">
+              {symbols[0]?.label ?? symbol}
+            </span>
+          )}
 
           <button
             type="button"

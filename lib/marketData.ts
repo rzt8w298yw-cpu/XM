@@ -37,6 +37,23 @@ export const SYMBOLS: SymbolSpec[] = [
   { id: "XAUUSD", label: "GOLD (XAU/USD)", yahoo: "XAUUSD=X", pipSize: 0.1, digits: 2, basePrice: 2600.0, quoteCurrency: "USD" },
 ];
 
+/**
+ * シグナルを出す銘柄。
+ *
+ * `SYMBOLS` は「仕様（pipの大きさ・桁数）が分かっている銘柄」の一覧で、
+ * バックテストや検証はここに載っているものを全部扱える。**実際にシグナルを
+ * 出して通知する銘柄はそれとは別**で、こちらで絞る。
+ *
+ * 2つを分けているのは、検証の範囲を狭めずに監視の範囲だけを決めたいため。
+ * 12通貨ペアで確かめた結果は判断の材料として要るが、通知を12本受け取る
+ * 必要は無い。
+ *
+ * `getSymbolSpec` を通すので、綴りを間違えた時点で起動に失敗する。
+ * 一覧に無いIDを黙って読み飛ばして「監視対象0件」になるより、その場で
+ * 止まったほうがいい。
+ */
+const SIGNAL_SYMBOL_IDS = ["USDJPY"];
+
 /** 知っている銘柄なら仕様を返す。知らなければ null */
 export function findSymbolSpec(id: string): SymbolSpec | null {
   return SYMBOLS.find((s) => s.id === id) ?? null;
@@ -54,6 +71,10 @@ export function findSymbolSpec(id: string): SymbolSpec | null {
  * 桁がずれても値動きの形は変わらないので、グラフを見ても気づけない。
  * 気づけないものは、黙って通してはいけない。
  */
+export const SIGNAL_SYMBOLS: SymbolSpec[] = SIGNAL_SYMBOL_IDS.map((id) =>
+  getSymbolSpec(id),
+);
+
 export function getSymbolSpec(id: string): SymbolSpec {
   const spec = findSymbolSpec(id);
   if (spec === null) {

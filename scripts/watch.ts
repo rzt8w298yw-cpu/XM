@@ -21,7 +21,7 @@
  * 永続化された場所を指定すること。
  */
 import { generateSignal } from "../lib/autoSignalEngine";
-import { fetchMarketData, getSymbolSpec, SYMBOLS } from "../lib/marketData";
+import { fetchMarketData, getSymbolSpec, SIGNAL_SYMBOLS, SYMBOLS } from "../lib/marketData";
 import { buildTradePlan } from "../lib/tradePlan";
 import { loadStrategyConfig, type StrategyConfig } from "../lib/strategyConfig";
 import {
@@ -82,10 +82,12 @@ function parseArgs(argv: string[]): Args {
     }
   }
 
+  // 既定はシグナルを出す銘柄（ドル円）。--symbols で明示すれば、
+  // 仕様の分かっている銘柄はどれでも見られる（検証用）
   const requested = map.get("symbols");
   const symbols = requested
     ? requested.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
-    : SYMBOLS.map((s) => s.id);
+    : SIGNAL_SYMBOLS.map((s) => s.id);
 
   for (const symbol of symbols) {
     if (!SYMBOLS.some((s) => s.id === symbol)) {

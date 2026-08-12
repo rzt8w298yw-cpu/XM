@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { aggregate, findSymbolSpec, getSymbolSpec, SYMBOLS } from "../lib/marketData";
+import {
+  aggregate,
+  findSymbolSpec,
+  getSymbolSpec,
+  SIGNAL_SYMBOLS,
+  SYMBOLS,
+} from "../lib/marketData";
 import type { OHLC } from "../lib/technicalAnalysis";
 
 const HOUR = 3_600_000;
@@ -89,6 +95,27 @@ describe("桁の想定が銘柄ごとに違うこと", () => {
       // 3桁ならpipは0.01、5桁なら0.0001、2桁（金）なら0.1
       const expected = spec.digits === 3 ? 0.01 : spec.digits === 5 ? 0.0001 : 0.1;
       expect(spec.pipSize, `${spec.id} の桁数と1pipが噛み合っていません`).toBe(expected);
+    }
+  });
+});
+
+describe("SIGNAL_SYMBOLS", () => {
+  it("シグナルを出すのはドル円だけ", () => {
+    expect(SIGNAL_SYMBOLS.map((s) => s.id)).toEqual(["USDJPY"]);
+  });
+
+  it("仕様が分かっている銘柄の一覧とは別物で、そちらは絞らない", () => {
+    /*
+     * 検証（バックテスト・総当たり探索）は12通貨ペアを扱う。監視を
+     * 1銘柄に絞ったせいでその範囲まで狭まると、判断の材料が消える。
+     */
+    expect(SYMBOLS.length).toBeGreaterThan(SIGNAL_SYMBOLS.length);
+  });
+
+  it("一覧に載っている銘柄と同じ実体を指す", () => {
+    // 別に定義し直すと pip の大きさが食い違いうる。参照であること
+    for (const signal of SIGNAL_SYMBOLS) {
+      expect(SYMBOLS).toContain(signal);
     }
   });
 });

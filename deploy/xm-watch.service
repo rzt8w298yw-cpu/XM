@@ -42,6 +42,9 @@ StateDirectory=xm
 # 直接呼べば「判定を終えてから終了」が効いて 0 で終わった。
 # systemd の既定（KillMode=control-group）なら子にも信号は届くが、
 # 間を1つ挟むだけの得が無い。
+#
+# --symbols は指定しない。既定がシグナル対象（ドル円）になっている。
+# ここに書き写すと、対象を変えたときに二重管理になる。
 ExecStart=/opt/xm/node_modules/.bin/tsx scripts/watch.ts \
   --state /var/lib/xm/signal-state.json \
   --log /var/lib/xm/signal-log.jsonl \

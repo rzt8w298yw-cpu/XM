@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateSignal } from "@/lib/autoSignalEngine";
-import { fetchMarketData, findSymbolSpec, SYMBOLS } from "@/lib/marketData";
+import { fetchMarketData, findSymbolSpec, SIGNAL_SYMBOLS, SYMBOLS } from "@/lib/marketData";
 import { buildTradePlan } from "@/lib/tradePlan";
 import { loadStrategyConfig } from "@/lib/strategyConfig";
 import { buildLotPlan } from "@/lib/lotPlan";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const requested = searchParams.get("symbol") ?? SYMBOLS[0].id;
+  const requested = searchParams.get("symbol") ?? SIGNAL_SYMBOLS[0].id;
 
   // 知らない銘柄でUSD/JPYを見せない。求めたものと違うものが
   // 同じ見た目で返るほうが、エラーより危ない。
