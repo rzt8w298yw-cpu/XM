@@ -627,6 +627,24 @@ const MUTATIONS: Mutation[] = [
     find: "  return { ...state, lastNotifiedAt: now };",
     replace: "  return state;",
   },
+  {
+    description: "銘柄: 未対応でも既定の銘柄で代用する（pipが桁で狂う）",
+    file: "lib/marketData.ts",
+    find: "  const spec = findSymbolSpec(id);\n  if (spec === null) {",
+    replace: "  const spec = findSymbolSpec(id) ?? SYMBOLS[0];\n  if (false) {",
+  },
+  {
+    description: "桁の検査: 範囲の下限を見ない（桁を取り違えても通る）",
+    file: "lib/candleScale.ts",
+    find: "  if (medianPips < bounds.min || medianPips > bounds.max) {",
+    replace: "  if (medianPips > bounds.max) {",
+  },
+  {
+    description: "桁の検査: 足の長さで範囲を変えない（1時間足の低ボラを誤検知）",
+    file: "lib/candleScale.ts",
+    find: "  h1: { min: 1, max: 500 },",
+    replace: "  h1: { min: 10, max: 3000 },",
+  },
   // --- CSV ---
   {
     description: "CSV: 空セルを0として受け入れる",

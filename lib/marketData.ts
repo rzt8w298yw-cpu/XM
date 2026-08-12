@@ -37,8 +37,32 @@ export const SYMBOLS: SymbolSpec[] = [
   { id: "XAUUSD", label: "GOLD (XAU/USD)", yahoo: "XAUUSD=X", pipSize: 0.1, digits: 2, basePrice: 2600.0, quoteCurrency: "USD" },
 ];
 
+/** 知っている銘柄なら仕様を返す。知らなければ null */
+export function findSymbolSpec(id: string): SymbolSpec | null {
+  return SYMBOLS.find((s) => s.id === id) ?? null;
+}
+
+/**
+ * 銘柄の仕様を返す。知らない銘柄なら例外にする。
+ *
+ * 以前はここで `?? SYMBOLS[0]`（＝USD/JPY）に落としていた。そのため
+ * `--symbol EURCHF` のように一覧に無い銘柄を渡すと、**pipの大きさが
+ * 0.0001 ではなく 0.01 として扱われ、損益が黙って100倍ずれた。**
+ * `scripts/fetchRealData.ts` は一覧に無い銘柄（EURCHF / EURGBP / AUDJPY /
+ * USDCAD / USDCHF）も取得できるので、実際に踏める道だった。
+ *
+ * 桁がずれても値動きの形は変わらないので、グラフを見ても気づけない。
+ * 気づけないものは、黙って通してはいけない。
+ */
 export function getSymbolSpec(id: string): SymbolSpec {
-  return SYMBOLS.find((s) => s.id === id) ?? SYMBOLS[0];
+  const spec = findSymbolSpec(id);
+  if (spec === null) {
+    throw new Error(
+      `未対応の銘柄です: ${id}（指定できるのは ${SYMBOLS.map((s) => s.id).join(", ")}）。` +
+        "pipの大きさが銘柄ごとに違うため、既定値で代用すると損益が桁で狂います",
+    );
+  }
+  return spec;
 }
 
 export interface MarketData {

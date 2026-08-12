@@ -23,6 +23,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { checkScale, type Timeframe } from "../lib/candleScale";
 
 const BASE = "https://raw.githubusercontent.com/ejtraderLabs/historical-data/main";
 const BROKER_TZ = "Europe/Athens"; // EET/EEST
@@ -219,24 +220,16 @@ async function download(url: string): Promise<string> {
   return response.text();
 }
 
-/**
- * 桁の取り違えを検出する。
- *
- * 桁がずれても値動きの「比率」は変わらないので、チャートを見ても気づけない。
- * 変わるのはpipの大きさだけ。日足の値幅をpipで測れば、10倍・100倍のずれは
- * すぐ出る（為替の日足は数十〜数百pips）。
- */
-function verifyScale(rows: Row[], symbol: string, pipSize: number, label: string): void {
-  const ranges = rows.map((r) => (r.high - r.low) / pipSize).sort((a, b) => a - b);
-  const median = ranges[Math.floor(ranges.length / 2)];
-  console.log(`  ${label}: 値幅の中央値 ${median.toFixed(0)} pips`);
-
-  if (median < 10 || median > 3000) {
-    throw new Error(
-      `${symbol}: 値幅の中央値が ${median.toFixed(0)} pips です。` +
-        `価格の桁数の想定（${pipSize}）が違う可能性があります`,
-    );
-  }
+function verifyScale(
+  rows: Row[],
+  symbol: string,
+  pipSize: number,
+  label: string,
+  timeframe: Timeframe,
+): void {
+  const result = checkScale(rows, pipSize, timeframe);
+  console.log(`  ${label}: 値幅の中央値 ${result.medianPips.toFixed(0)} pips`);
+  if (!result.ok) throw new Error(`${symbol}: ${label}の${result.reason}`);
 }
 
 async function fetchSymbol(symbol: string, args: Args): Promise<void> {
@@ -256,7 +249,7 @@ async function fetchSymbol(symbol: string, args: Args): Promise<void> {
     if (rows.length === 0) throw new Error(`${url}: 有効な行がありません`);
 
     verify(rows, label, step);
-    verifyScale(rows, symbol, pipSize, label);
+    verifyScale(rows, symbol, pipSize, label, suffix);
     if (skipped > 0) console.log(`  ${label}: ${skipped}行を読み飛ばしました`);
     if (duplicates > 0) {
       console.log(`  ${label}: 夏時間の戻りで重複した ${duplicates}行を除きました`);

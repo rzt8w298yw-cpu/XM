@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateSignal } from "@/lib/autoSignalEngine";
-import { fetchMarketData, getSymbolSpec, SYMBOLS } from "@/lib/marketData";
+import { fetchMarketData, findSymbolSpec, SYMBOLS } from "@/lib/marketData";
 import { buildTradePlan } from "@/lib/tradePlan";
 import { loadStrategyConfig } from "@/lib/strategyConfig";
 import { buildLotPlan } from "@/lib/lotPlan";
@@ -20,7 +20,18 @@ export async function GET(request: Request) {
     );
   }
 
-  const spec = getSymbolSpec(requested);
+  // 知らない銘柄でUSD/JPYを見せない。求めたものと違うものが
+  // 同じ見た目で返るほうが、エラーより危ない
+  const spec = findSymbolSpec(requested);
+  if (spec === null) {
+    return NextResponse.json(
+      {
+        error: `未対応の銘柄です: ${requested}`,
+        supported: SYMBOLS.map((s) => s.id),
+      },
+      { status: 400 },
+    );
+  }
 
   try {
     const { config: strategy, warnings } = loadStrategyConfig();

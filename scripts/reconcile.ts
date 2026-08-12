@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { parseCandleCsv } from "../lib/csv";
 import { judgeTrackRecord } from "../lib/edgeMath";
 import { loadStrategyConfig } from "../lib/strategyConfig";
-import { fetchMarketData, getSymbolSpec } from "../lib/marketData";
+import { fetchMarketData, findSymbolSpec } from "../lib/marketData";
 import {
   readSignalLog,
   reconcileSignal,
@@ -116,7 +116,17 @@ async function main() {
   const all: ReconciledSignal[] = [];
 
   for (const [symbolId, group] of bySymbol) {
-    const spec = getSymbolSpec(symbolId);
+    // pipの大きさが分からない銘柄は、損益を出しても意味が無い。
+    // 全体を止めずにその銘柄だけ飛ばす
+    const spec = findSymbolSpec(symbolId);
+    if (spec === null) {
+      console.log("");
+      console.log(
+        `${symbolId}: 未対応の銘柄なので飛ばします` +
+          "（pipの大きさが分からないため、損益を計算できません）",
+      );
+      continue;
+    }
     let candles: OHLC[];
     let source: string;
     try {
@@ -204,7 +214,8 @@ async function main() {
     console.log(`直近の決着（最大${args.showTrades}件）:`);
     for (const item of resolved) {
       const when = new Date(item.record.barTime).toISOString().slice(0, 16).replace("T", " ");
-      const spec = getSymbolSpec(item.record.symbolId);
+      const spec = findSymbolSpec(item.record.symbolId);
+      if (spec === null) continue;
       console.log(
         `  ${when}  ${item.record.symbolId.padEnd(7)} ${item.record.signal.padEnd(4)} ` +
           `${item.record.price.toFixed(spec.digits)} → ${fmt(item.pips ?? 0).padStart(7)} pips  ` +

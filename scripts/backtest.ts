@@ -4,6 +4,7 @@
  *   npm run backtest -- --symbol USDJPY
  *   npm run backtest -- --symbol USDJPY --sweep buyRsiMax=60,65,70,75,80
  *   npm run backtest -- --csv-1h data/usdjpy_1h.csv --csv-daily data/usdjpy_1d.csv
+ *   npm run backtest -- --symbol EURCHF --pip-size 0.0001 --csv-1h ... --csv-daily ...
  *
  * CSVは `timestamp,open,high,low,close` のヘッダ付き。timestampはISO文字列か
  * エポック秒/ミリ秒を受け付ける。
@@ -23,7 +24,7 @@ import {
   splitByPeriod,
 } from "../lib/equityCurve";
 import { DEFAULT_THRESHOLDS, type SignalThresholds } from "../lib/autoSignalEngine";
-import { fetchMarketData, getSymbolSpec } from "../lib/marketData";
+import { fetchMarketData, findSymbolSpec, getSymbolSpec, type SymbolSpec } from "../lib/marketData";
 import type { OHLC } from "../lib/technicalAnalysis";
 
 interface Args {
@@ -38,6 +39,8 @@ interface Args {
   riskRewardRatio: number;
   range1H: string;
   syntheticBars: number;
+  /** 一覧に無い銘柄のCSVを使うとき、1pipの大きさを直接渡す */
+  pipSize?: number;
   sweep?: { key: keyof SignalThresholds; values: number[] };
 }
 
@@ -85,6 +88,15 @@ function parseArgs(argv: string[]): Args {
     maxHoldingBars: num("max-holding", 120),
     atrStopMultiplier: num("atr-stop", 1.5),
     riskRewardRatio: num("rr", 2),
+    pipSize: (() => {
+      const raw = map.get("pip-size");
+      if (raw === undefined) return undefined;
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error(`--pip-size は正の数で指定してください: ${raw}`);
+      }
+      return parsed;
+    })(),
     range1H: map.get("range") ?? "730d",
     syntheticBars: num("synthetic-bars", 9000),
     sweep,
@@ -112,7 +124,36 @@ function loadCsv(path: string, label: string, expectedStepMs: number): OHLC[] {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const spec = getSymbolSpec(args.symbol);
+
+  /*
+   * CSVを使うときは、銘柄はpipの大きさと桁数を決めるためだけに要る。
+   * `scripts/fetchRealData.ts` は一覧に無い銘柄（EURCHF など）も取れるので、
+   * 「データは取れるがバックテストできない」状態にならないよう、
+   * pipの大きさを直接渡せるようにしてある。
+   *
+   * ただし**既定値で代用はしない。** 桁がずれても値動きの形は変わらず、
+   * 損益だけが黙って100倍ずれるため。分からないなら止める。
+   */
+  const known = findSymbolSpec(args.symbol);
+  const spec: SymbolSpec =
+    known ??
+    (args.pipSize !== undefined
+      ? {
+          id: args.symbol,
+          label: args.symbol,
+          yahoo: "",
+          pipSize: args.pipSize,
+          digits: args.symbol.endsWith("JPY") ? 3 : 5,
+          basePrice: 0,
+          quoteCurrency: args.symbol.slice(3),
+        }
+      : getSymbolSpec(args.symbol));
+
+  if (known === null && !args.csv1H) {
+    throw new Error(
+      `${args.symbol} は取得に対応していません。--csv-1h / --csv-daily で手元のデータを渡してください`,
+    );
+  }
 
   let candles1H: OHLC[];
   let candlesDaily: OHLC[];

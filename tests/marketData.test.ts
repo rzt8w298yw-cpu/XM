@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregate, getSymbolSpec, SYMBOLS } from "../lib/marketData";
+import { aggregate, findSymbolSpec, getSymbolSpec, SYMBOLS } from "../lib/marketData";
 import type { OHLC } from "../lib/technicalAnalysis";
 
 const HOUR = 3_600_000;
@@ -57,12 +57,38 @@ describe("aggregate", () => {
 });
 
 describe("getSymbolSpec", () => {
-  it("未知のシンボルは先頭のシンボルにフォールバックする", () => {
-    expect(getSymbolSpec("UNKNOWN").id).toBe(SYMBOLS[0].id);
+  it("未知のシンボルは例外にする（既定値で代用しない）", () => {
+    // 以前はUSD/JPYに落としていた。EURCHFのような一覧に無い銘柄で
+    // pipの大きさが100倍ずれ、損益が黙って桁違いになっていた
+    expect(() => getSymbolSpec("EURCHF")).toThrow(/未対応の銘柄/);
+    expect(() => getSymbolSpec("でたらめ")).toThrow(/指定できるのは/);
+  });
+
+  it("知らない銘柄を確かめるだけなら null を返す", () => {
+    expect(findSymbolSpec("EURCHF")).toBeNull();
+    expect(findSymbolSpec("USDJPY")?.pipSize).toBe(0.01);
   });
 
   it("JPYペアとドルストレートでpip単位が異なる", () => {
     expect(getSymbolSpec("USDJPY").pipSize).toBe(0.01);
     expect(getSymbolSpec("EURUSD").pipSize).toBe(0.0001);
+  });
+});
+
+describe("桁の想定が銘柄ごとに違うこと", () => {
+  it("JPY建てとそれ以外でpipの大きさが100倍違う", () => {
+    // ここを取り違えると損益だけが黙って100倍ずれる。
+    // 値動きの形は変わらないので、チャートを見ても気づけない
+    expect(getSymbolSpec("USDJPY").pipSize).toBe(0.01);
+    expect(getSymbolSpec("EURUSD").pipSize).toBe(0.0001);
+    expect(getSymbolSpec("USDJPY").pipSize / getSymbolSpec("EURUSD").pipSize).toBe(100);
+  });
+
+  it("一覧の全銘柄で、桁数とpipの大きさが噛み合っている", () => {
+    for (const spec of SYMBOLS) {
+      // 3桁ならpipは0.01、5桁なら0.0001、2桁（金）なら0.1
+      const expected = spec.digits === 3 ? 0.01 : spec.digits === 5 ? 0.0001 : 0.1;
+      expect(spec.pipSize, `${spec.id} の桁数と1pipが噛み合っていません`).toBe(expected);
+    }
   });
 });
