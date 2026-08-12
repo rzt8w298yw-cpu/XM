@@ -652,6 +652,25 @@ const MUTATIONS: Mutation[] = [
     find: "if (raw === undefined || raw === \"\") return null;",
     replace: "if (raw === undefined) return null;",
   },
+  // --- 対照実験の候補 ---
+  {
+    description: "対照: 候補0件でも黙って空を返す（比較していないのに圧勝に見える）",
+    file: "lib/backtest.ts",
+    find: "  if (candidates.length === 0) {\n    throw new Error(",
+    replace: "  if (false) {\n    throw new Error(",
+  },
+  {
+    description: "対照: セッション絞り込みを無効にできなくする（日足で候補が消える）",
+    file: "lib/backtest.ts",
+    find: "  const restrictToSessions = cfg.restrictToSessions !== false;",
+    replace: "  const restrictToSessions = true;",
+  },
+  {
+    description: "対照: セッションに関係なく全ての足を候補にする",
+    file: "lib/backtest.ts",
+    find: "    if (restrictToSessions) {\n      const session = getTimeSessionFromTimestamp(candles1H[i].timestamp);\n      if (session !== \"LONDON\" && session !== \"NY\") continue;\n    }",
+    replace: "",
+  },
   // --- 対照実験の判定 ---
   {
     description: "対照: 最大と並んだだけで「上回った」と言う",

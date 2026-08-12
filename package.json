@@ -15,7 +15,8 @@
     "optimize": "tsx scripts/optimize.ts",
     "mutate": "tsx scripts/mutate.ts",
     "reconcile": "tsx scripts/reconcile.ts",
-    "edge": "tsx scripts/edge.ts"
+    "edge": "tsx scripts/edge.ts",
+    "search-winrate": "tsx scripts/searchWinRate.ts"
   },
   "dependencies": {
     "next": "^15.5.23",

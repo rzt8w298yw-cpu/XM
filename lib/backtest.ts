@@ -51,6 +51,16 @@ export interface BacktestConfig {
    * これを false にすると、方向が当たっているかだけを測れる。
    */
   useStops?: boolean;
+  /**
+   * 対照実験の候補をロンドン・NY時間に絞るか。既定は絞る。
+   *
+   * **日足では必ず false にすること。** 日足の足の時刻は 22:00 UTC で
+   * 固定されていて、どちらのセッションにも該当しない。絞ったままだと
+   * 候補が1本も残らず、対照は0件・勝率0%を返す。それを戦略の勝率と
+   * 比べると必ず「ランダムを上回った」になる——比較そのものが
+   * 行われていないのに。
+   */
+  restrictToSessions?: boolean;
   /** 閾値の上書き */
   thresholds?: Partial<SignalThresholds>;
 }
@@ -361,16 +371,32 @@ export function runRandomEntryControl(
 
   const firstBar = Math.max(cfg.windowSize, 250);
   // 戦略と同じくロンドン・NY時間だけを候補にする
+  const restrictToSessions = cfg.restrictToSessions !== false;
   const candidates: number[] = [];
   for (let i = firstBar; i < candles1H.length - 1; i++) {
     const atr = atrSeries[i];
     if (atr === undefined || atr <= 0) continue;
-    const session = getTimeSessionFromTimestamp(candles1H[i].timestamp);
-    if (session !== "LONDON" && session !== "NY") continue;
+    if (restrictToSessions) {
+      const session = getTimeSessionFromTimestamp(candles1H[i].timestamp);
+      if (session !== "LONDON" && session !== "NY") continue;
+    }
     candidates.push(i);
   }
+  /*
+   * 候補が無いまま「0件の対照」を返してはいけない。
+   *
+   * 0件の統計は勝率0%になり、どんな戦略でもそれを上回る。つまり
+   * 比較が行われていないことが「圧勝」として出力される。日足に
+   * セッション絞り込みを掛けたときに実際にこれが起きた。黙って
+   * 空を返すより、呼び出し側を止めるほうがいい。
+   */
   if (candidates.length === 0) {
-    return { trades, barsInPosition: 0, barsEvaluated: 0, stats: summarize(trades) };
+    throw new Error(
+      "対照実験の候補が1本もありません。" +
+        (restrictToSessions
+          ? "日足など、ロンドン・NY時間に当たらない足では restrictToSessions: false を指定してください。"
+          : "ATRが有効な足がありません。"),
+    );
   }
 
   const used: { from: number; to: number }[] = [];
