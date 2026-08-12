@@ -292,8 +292,25 @@ export function simulateTrade(
     // 同じ足で両方に触れた場合、足の中の到達順は1H足からは判別できない。
     // 成績を楽観的に見積もらないよう損切り側を採用する。
     if (hitStop) {
+      /*
+       * 足が損切りを飛び越えて始まっていたら、指定値では約定しない。
+       *
+       * 週末を挟むと窓が開く。損切りの水準が窓の内側にあるとき、
+       * 実際に約定するのは**始値**であって、置いた値段ではない。
+       * ここを stopLoss のままにすると、飛んだぶんの損失が丸ごと
+       * 消える。データには4日超の飛びが銘柄あたり数百箇所あり、
+       * EURCHFには2081 pipsの飛びが1箇所ある——スイス中銀が
+       * 下限を外した日で、そこを指定値で約定できたことにすると
+       * 破綻が無かったことになる。
+       *
+       * 利確側は逆に、窓が有利に開いても指定値のままにしてある。
+       * どちらも「良く見えない側」に倒すため。
+       */
+      const gappedThrough =
+        direction === "BUY" ? candle.open < stopLoss : candle.open > stopLoss;
+      const fillBase = gappedThrough ? candle.open : stopLoss;
       // 損切りは不利な方向に滑る。BUYなら想定より安く、SELLなら高く約定する
-      const filled = stopLoss - cfg.stopSlippagePips * cfg.pipSize * sign;
+      const filled = fillBase - cfg.stopSlippagePips * cfg.pipSize * sign;
       return buildTrade(direction, candles1H, entryIndex, j, entryPrice, filled, stopLoss, takeProfit, "stop_loss", confidence, cfg);
     }
     if (hitTarget) {

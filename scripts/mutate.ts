@@ -87,8 +87,8 @@ const MUTATIONS: Mutation[] = [
   {
     description: "決済: 同一足で両側に触れた時に利確を優先（楽観側に倒す）",
     file: "lib/backtest.ts",
-    find: "    if (hitStop) {\n      // 損切りは不利な方向に滑る。BUYなら想定より安く、SELLなら高く約定する\n      const filled = stopLoss - cfg.stopSlippagePips * cfg.pipSize * sign;\n      return buildTrade(direction, candles1H, entryIndex, j, entryPrice, filled, stopLoss, takeProfit, \"stop_loss\", confidence, cfg);\n    }\n    if (hitTarget) {",
-    replace: "    if (hitTarget) {\n      return buildTrade(direction, candles1H, entryIndex, j, entryPrice, takeProfit, stopLoss, takeProfit, \"take_profit\", confidence, cfg);\n    }\n    if (hitStop) {\n      const filled = stopLoss - cfg.stopSlippagePips * cfg.pipSize * sign;\n      return buildTrade(direction, candles1H, entryIndex, j, entryPrice, filled, stopLoss, takeProfit, \"stop_loss\", confidence, cfg);\n    }\n    if (false) {",
+    find: "    if (hitStop) {",
+    replace: "    if (hitStop && !hitTarget) {",
   },
   {
     description: "決済: エントリーをシグナル足の終値にする（先読み）",
@@ -651,6 +651,25 @@ const MUTATIONS: Mutation[] = [
     file: "lib/csv.ts",
     find: "if (raw === undefined || raw === \"\") return null;",
     replace: "if (raw === undefined) return null;",
+  },
+  // --- 窓を開けた足での約定 ---
+  {
+    description: "窓: 損切りを飛び越えて始まっても指定値で約定したことにする",
+    file: "lib/backtest.ts",
+    find: "      const fillBase = gappedThrough ? candle.open : stopLoss;",
+    replace: "      const fillBase = stopLoss;",
+  },
+  {
+    description: "窓: 飛び越えの判定方向を逆にする",
+    file: "lib/backtest.ts",
+    find: "        direction === \"BUY\" ? candle.open < stopLoss : candle.open > stopLoss;",
+    replace: "        direction === \"BUY\" ? candle.open > stopLoss : candle.open < stopLoss;",
+  },
+  {
+    description: "窓: 始値で約定するときは滑りを乗せない",
+    file: "lib/backtest.ts",
+    find: "      const filled = fillBase - cfg.stopSlippagePips * cfg.pipSize * sign;",
+    replace: "      const filled = gappedThrough ? fillBase : fillBase - cfg.stopSlippagePips * cfg.pipSize * sign;",
   },
   // --- 対照実験の候補 ---
   {
