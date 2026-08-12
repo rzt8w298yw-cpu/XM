@@ -652,6 +652,19 @@ const MUTATIONS: Mutation[] = [
     find: "if (raw === undefined || raw === \"\") return null;",
     replace: "if (raw === undefined) return null;",
   },
+  // --- 記録の所在 ---
+  {
+    description: "記録: ファイルが無くても「ある」と言う（場所の間違いに気づけない）",
+    file: "lib/signalLog.ts",
+    find: "  if (!existsSync(path)) return { records: [], malformed: 0, missing: true };",
+    replace: "  if (!existsSync(path)) return { records: [], malformed: 0, missing: false };",
+  },
+  {
+    description: "記録: 中身があるのに「ファイルが無い」と言う",
+    file: "lib/signalLog.ts",
+    find: "  return { records, malformed, missing: false };",
+    replace: "  return { records, malformed, missing: true };",
+  },
   // --- 停止 ---
   {
     description: "停止: 二度目の要求も一度目として扱う（強制終了できなくなる）",

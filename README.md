@@ -66,7 +66,7 @@ npm run dev      # http://localhost:3000
 ```bash
 npm run build      # 本番ビルド
 npm start          # 本番サーバー起動
-npm test           # テスト（389件）
+npm test           # テスト（390件）
 npm run lint       # ESLint
 npm run typecheck  # 型チェック
 ```
@@ -762,9 +762,13 @@ sudo systemctl start xm-watch
 になります。
 
 ```bash
-sudo -u xm env $(grep -v '^#' /etc/xm/watch.env | xargs) \
-  /opt/xm/node_modules/.bin/tsx /opt/xm/scripts/watch.ts --test-notification
+sudo -u xm bash -c 'set -a; . /etc/xm/watch.env; set +a; \
+  exec /opt/xm/node_modules/.bin/tsx /opt/xm/scripts/watch.ts --test-notification'
 ```
+
+`env $(...)` で渡してはいけません。Webhook URL がコマンドラインに載り、
+同じホストの他の利用者が `ps` で読めてしまいます。URL を知っていれば誰でも
+その通知先に投稿できるので、これは鍵を晒すのと同じです。
 
 普段見るもの:
 
@@ -1079,10 +1083,10 @@ n ≧ ( 1.96 × ばらつき / 期待値 )²
 
 | ワークフロー | いつ | 内容 |
 | --- | --- | --- |
-| `ci.yml` | push / PR | 型チェック・Lint・テスト389件・ビルド・文字色の検査 |
-| `mutate.yml` | 週1回（月曜）+ 手動 | ミューテーションテスト100件 |
+| `ci.yml` | push / PR | 型チェック・Lint・テスト390件・ビルド・文字色の検査 |
+| `mutate.yml` | 週1回（月曜）+ 手動 | ミューテーションテスト102件 |
 
-**ミューテーションは分けてあります。** 100件それぞれでテスト全体を回すので
+**ミューテーションは分けてあります。** 102件それぞれでテスト全体を回すので
 数分〜十数分かかり、pushのたびに回すには重すぎます。
 
 `ci.yml` の最後にある文字色の検査は、`text-slate-500` がソースに入ったら
@@ -1118,7 +1122,7 @@ npm run mutate -- --filter backtest
 
 損益や判定に直結する箇所を狙っています（決済の不等号、スプレッド控除、
 先読み防止、指標の計算式、エンジンのゲート、ロットの丸め、状態保存の原子性、
-常駐の停止処理など）。現在100件、生存0件です。
+常駐の停止処理など）。現在102件、生存0件です。
 各ミューテーションは適用→テスト→復元を必ず行い、開始前にワーキングツリーが
 綺麗であることを確認するので、中断されてもソースは元のまま残ります。
 

@@ -145,8 +145,8 @@ if [[ ${WEBHOOK_SET} -eq 0 ]]; then
 
   1. sudo nano ${ENV_FILE}          … SIGNAL_WEBHOOK_URL を書く
   2. sudo systemctl start ${UNIT}
-  3. sudo -u ${APP_USER} env \$(grep -v '^#' ${ENV_FILE} | xargs) \\
-       ${TSX_BIN} ${APP_DIR}/scripts/watch.ts --test-notification
+  3. sudo -u ${APP_USER} bash -c 'set -a; . ${ENV_FILE}; set +a; \\
+       exec ${TSX_BIN} ${APP_DIR}/scripts/watch.ts --test-notification'
      … 通知が届くか1件だけ送って確かめる
 EOF
 else
@@ -156,8 +156,8 @@ else
 
 起動したら、まず疎通確認を1件送ってください:
 
-  sudo -u ${APP_USER} env \$(grep -v '^#' ${ENV_FILE} | xargs) \\
-    ${TSX_BIN} ${APP_DIR}/scripts/watch.ts --test-notification
+  sudo -u ${APP_USER} bash -c 'set -a; . ${ENV_FILE}; set +a; \\
+    exec ${TSX_BIN} ${APP_DIR}/scripts/watch.ts --test-notification'
 EOF
 fi
 

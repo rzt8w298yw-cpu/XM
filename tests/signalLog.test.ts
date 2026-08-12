@@ -57,9 +57,28 @@ describe("記録の読み書き", () => {
     expect(malformed).toBe(0);
   });
 
+  it("ファイルが無いことと、空であることを区別する", () => {
+    /*
+     * どちらも0件になるが、意味は正反対。無いのは場所の指定違い、
+     * 空なのはまだシグナルが出ていないだけ。照合はこれを見て
+     * 案内を変える。
+     */
+    const dir = mkdtempSync(join(tmpdir(), "signal-log-"));
+    const empty = join(dir, "empty.jsonl");
+    writeFileSync(empty, "", "utf8");
+
+    expect(readSignalLog(join(dir, "none.jsonl")).missing).toBe(true);
+    expect(readSignalLog(empty).missing).toBe(false);
+    expect(readSignalLog(empty).records).toHaveLength(0);
+  });
+
   it("ファイルが無ければ空を返す", () => {
     const dir = mkdtempSync(join(tmpdir(), "signal-log-"));
-    expect(readSignalLog(join(dir, "none.jsonl"))).toEqual({ records: [], malformed: 0 });
+    expect(readSignalLog(join(dir, "none.jsonl"))).toEqual({
+      records: [],
+      malformed: 0,
+      missing: true,
+    });
   });
 
   it("壊れた行は数えて飛ばし、残りは読む", () => {

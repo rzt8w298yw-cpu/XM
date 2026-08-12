@@ -37,6 +37,16 @@ export interface ReadResult {
   records: SignalRecord[];
   /** JSONとして読めなかった行数 */
   malformed: number;
+  /**
+   * ファイル自体が無かったか。
+   *
+   * 「まだシグナルが出ていない」と「置き場所を間違えている」は、
+   * 件数だけ見ると同じ0件になる。監視は `--log` で場所を変えられ、
+   * systemd では `/var/lib/xm/signal-log.jsonl` を渡すので、照合の
+   * ときに既定値のまま実行すると必ず空振りする。0件の理由を
+   * 呼び出し側が言い分けられるようにする。
+   */
+  missing: boolean;
 }
 
 /**
@@ -66,7 +76,7 @@ function isSignalRecord(value: unknown): value is SignalRecord {
 }
 
 export function readSignalLog(path: string): ReadResult {
-  if (!existsSync(path)) return { records: [], malformed: 0 };
+  if (!existsSync(path)) return { records: [], malformed: 0, missing: true };
 
   const lines = readFileSync(path, "utf8").split("\n").filter((l) => l.trim() !== "");
   const records: SignalRecord[] = [];
@@ -82,7 +92,7 @@ export function readSignalLog(path: string): ReadResult {
     }
   }
 
-  return { records, malformed };
+  return { records, malformed, missing: false };
 }
 
 export type SignalOutcome = "take_profit" | "stop_loss" | "open" | "no_data";

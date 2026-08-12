@@ -13,15 +13,12 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const requested = searchParams.get("symbol") ?? SYMBOLS[0].id;
 
-  if (!SYMBOLS.some((s) => s.id === requested)) {
-    return NextResponse.json(
-      { error: `未対応のシンボルです: ${requested}` },
-      { status: 400 },
-    );
-  }
-
   // 知らない銘柄でUSD/JPYを見せない。求めたものと違うものが
-  // 同じ見た目で返るほうが、エラーより危ない
+  // 同じ見た目で返るほうが、エラーより危ない。
+  //
+  // 判定はここ1か所。以前は手前に `SYMBOLS.some(...)` の検査がもう1つ
+  // 並んでいたが、通れば `findSymbolSpec` は必ず値を返すので、下の
+  // 分岐——対応銘柄の一覧を返すほう——には決して到達しなかった。
   const spec = findSymbolSpec(requested);
   if (spec === null) {
     return NextResponse.json(

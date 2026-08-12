@@ -79,7 +79,7 @@ async function candlesForSymbol(
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const { records, malformed } = readSignalLog(args.logPath);
+  const { records, malformed, missing } = readSignalLog(args.logPath);
 
   console.log("=".repeat(76));
   console.log("フォワードテストの照合");
@@ -87,10 +87,31 @@ async function main() {
   console.log(`記録ファイル: ${args.logPath}`);
   console.log(`記録件数    : ${records.length}件${malformed > 0 ? `（読めなかった行 ${malformed}）` : ""}`);
 
+  /*
+   * 0件の理由を言い分ける。
+   *
+   * ファイルが無いのに「まだシグナルが出ていません」と出すと、場所を
+   * 間違えているだけなのに待ち続けることになる。監視は systemd では
+   * `/var/lib/xm/signal-log.jsonl` に書くので、照合をうっかり既定値の
+   * まま実行すると必ずこの空振りになる。
+   */
+  if (missing) {
+    console.log("");
+    console.log("記録ファイルがありません。");
+    console.log(`  ${args.logPath}`);
+    console.log("");
+    console.log("監視の --log と同じ場所を指してください。常駐させている場合は");
+    console.log("既定値ではなく、そちらで指定した場所にあります。");
+    console.log("  npm run reconcile -- --log /var/lib/xm/signal-log.jsonl");
+    process.exitCode = 1;
+    return;
+  }
+
   if (records.length === 0) {
     console.log("");
-    console.log("照合できる記録がありません。");
+    console.log("記録ファイルはありますが、まだ中身がありません。");
     console.log("`npm run watch` を動かしてシグナルが記録されるのを待ってください。");
+    console.log("シグナルは1銘柄あたり平均4.3日に1回しか出ません。");
     return;
   }
 
