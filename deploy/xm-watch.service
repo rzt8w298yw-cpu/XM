@@ -1,0 +1,83 @@
+# XM シグナル監視の常駐設定（systemd）
+#
+#   sudo cp deploy/xm-watch.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now xm-watch
+#
+# 導入は deploy/install.sh がまとめてやる。この文面は中身を確かめる用。
+
+[Unit]
+Description=XM FX シグナル監視
+Documentation=https://github.com/rzt8w298yw-cpu/XM
+# ネットワークが上がる前に起動すると、初回の取得が必ず失敗して
+# 「監視が止まっています」を1通出してから復旧することになる
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# 一般ユーザーで動かす。相場データを取ってWebhookに投げるだけなので
+# 特権は要らない。install.sh がこのユーザーを作る
+User=xm
+Group=xm
+
+WorkingDirectory=/opt/xm
+
+# SIGNAL_WEBHOOK_URL をここに置く。0600 で root 所有にし、
+# systemd だけが読めるようにする（install.sh がそう作る）
+EnvironmentFile=/etc/xm/watch.env
+
+# 状態ファイルは /var/lib/xm に置く。作業ディレクトリに置くと
+# git pull で入れ替えたときに巻き添えで消える。
+#   .signal-state.json        いまのシグナル。前回と変わったときだけ通知するのに使う
+#   .signal-state.health.json 監視自体の健康状態
+#   .signal-log.jsonl         出したシグナルの記録。npm run reconcile が読む
+StateDirectory=xm
+#
+# tsx は npx 越しに呼ばない。
+#
+# npx は別プロセスとして間に立ち、`SIGTERM` を子へ渡さずに自分が
+# 143 で落ちる。実測でも npx 経由だと停止処理が一度も走らず、
+# 直接呼べば「判定を終えてから終了」が効いて 0 で終わった。
+# systemd の既定（KillMode=control-group）なら子にも信号は届くが、
+# 間を1つ挟むだけの得が無い。
+ExecStart=/opt/xm/node_modules/.bin/tsx scripts/watch.ts \
+  --state /var/lib/xm/signal-state.json \
+  --log /var/lib/xm/signal-log.jsonl \
+  --interval 300 \
+  --heartbeat 24
+
+# 落ちても上げ直す。ただし際限なく再起動を繰り返して
+# ログを埋めないよう間隔を空ける
+Restart=always
+RestartSec=30
+# 5分の間に4回落ちたら諦めて止まる。設定ミスや依存の欠落なら
+# 何度上げ直しても直らないので、そこは人が気づくべき
+StartLimitIntervalSec=300
+StartLimitBurst=4
+
+# SIGTERM を受けたらいまの判定を終えてから止まる。
+# 判定1回はデータ取得を含めても十分に収まる
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=xm-watch
+
+# 触る必要のない場所を塞ぐ
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/xm
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+# 外に出る通信はTCPだけで足りる
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

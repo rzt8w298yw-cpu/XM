@@ -652,6 +652,55 @@ const MUTATIONS: Mutation[] = [
     find: "if (raw === undefined || raw === \"\") return null;",
     replace: "if (raw === undefined) return null;",
   },
+  // --- 停止 ---
+  {
+    description: "停止: 二度目の要求も一度目として扱う（強制終了できなくなる）",
+    file: "lib/shutdown.ts",
+    find: "      if (reason !== null) return \"force\";",
+    replace: "      if (false) return \"force\";",
+  },
+  {
+    description: "停止: 二度目の信号で理由を上書きする",
+    file: "lib/shutdown.ts",
+    find: "      if (reason !== null) return \"force\";\n      reason = signal;",
+    replace: "      const already = reason !== null;\n      reason = signal;\n      if (already) return \"force\";",
+  },
+  {
+    description: "停止: 待機を起こさない（次の周期まで止まらない）",
+    file: "lib/shutdown.ts",
+    find: "      for (const wake of [...waiters]) wake();",
+    replace: "      // 起こさない",
+  },
+  {
+    description: "停止: 要求済みでも最後まで待つ",
+    file: "lib/shutdown.ts",
+    find: "      if (reason !== null) return Promise.resolve();\n      if (!(ms > 0)) return Promise.resolve();",
+    replace: "      if (!(ms > 0)) return Promise.resolve();",
+  },
+  {
+    description: "停止: 0以下の待機でもタイマーを張る",
+    file: "lib/shutdown.ts",
+    find: "      if (!(ms > 0)) return Promise.resolve();",
+    replace: "",
+  },
+  {
+    description: "停止: 時間切れの起こし手を控えから外さない（積み上がる）",
+    file: "lib/shutdown.ts",
+    find: "          waiters.delete(wake);",
+    replace: "          // 外さない",
+  },
+  {
+    description: "停止: 終了コードを慣例の 128+信号 にしない",
+    file: "lib/shutdown.ts",
+    find: "  SIGINT: 130,\n  SIGTERM: 143,",
+    replace: "  SIGINT: 0,\n  SIGTERM: 0,",
+  },
+  {
+    description: "停止: 知らない信号を 0（正常終了）として返す",
+    file: "lib/shutdown.ts",
+    find: "  return SIGNAL_EXIT_CODES[signal] ?? 1;",
+    replace: "  return SIGNAL_EXIT_CODES[signal] ?? 0;",
+  },
 ];
 
 function isWorkingTreeClean(): boolean {

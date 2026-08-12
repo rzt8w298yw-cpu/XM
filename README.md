@@ -730,6 +730,81 @@ npm run watch -- --interval 300
 判定はロンドン（JST 16-21時）とNY（JST 21-翌2時）以外では必ずWAITになるので、
 それ以外の時間帯に回しても通知は出ません。
 
+### VPSに常駐させる
+
+`deploy/install.sh` が systemd への登録までやります。何度実行しても同じ状態に
+なるので、更新のたびに回して構いません。
+
+```bash
+git clone https://github.com/rzt8w298yw-cpu/XM.git
+cd XM
+sudo ./deploy/install.sh
+
+sudo nano /etc/xm/watch.env      # SIGNAL_WEBHOOK_URL を書く
+sudo systemctl start xm-watch
+```
+
+入るもの:
+
+| 場所 | 中身 |
+| --- | --- |
+| `/opt/xm` | アプリ本体。`git pull` で入れ替えてよい |
+| `/var/lib/xm` | 状態とシグナルの記録。**ここは消さない** |
+| `/etc/xm/watch.env` | Webhook URL。root所有・0600 |
+| `/etc/systemd/system/xm-watch.service` | 常駐設定 |
+
+状態を `/opt/xm` ではなく `/var/lib/xm` に置くのは、アプリを入れ替えたときに
+巻き添えで消さないためです。ここが消えると「前回と変わったときだけ通知する」の
+基準が失われ、次の起動で全銘柄ぶんの通知が出ます。
+
+導入したら、まず疎通確認を1件送ってください。これをやらないと、Webhookの
+アドレスを打ち間違えていても気づくのは最初のシグナルが出たとき——平均4日後
+になります。
+
+```bash
+sudo -u xm env $(grep -v '^#' /etc/xm/watch.env | xargs) \
+  /opt/xm/node_modules/.bin/tsx /opt/xm/scripts/watch.ts --test-notification
+```
+
+普段見るもの:
+
+```bash
+systemctl status xm-watch
+journalctl -u xm-watch -f          # 判定のたびに1行出る
+```
+
+#### 止め方について
+
+`systemctl stop` は `SIGTERM` を送ります。監視はこれを受けると**いま走っている
+判定を最後まで終わらせてから**止まります。途中で切ると、通知だけ出て状態が
+保存されず、次の起動で同じ通知をもう一度出すことになるためです。もう一度
+`SIGTERM` を送れば待たずに終わります。
+
+unit が `npx` ではなく `node_modules/.bin/tsx` を直接呼んでいるのはこのためです。
+`npx` は別プロセスとして間に立ち、`SIGTERM` を子へ渡さずに自分が 143 で落ちます。
+実測でも `npx` 経由では停止処理が一度も走らず、直接呼べば終了コード 0 で
+「判定を終えてから終了」が効きました。
+
+#### 入れる前に確かめること
+
+- **Node.js がシステム全体に入っていること。** nvm のように利用者ごとの場所に
+  あると、`xm` ユーザーからは見えず起動に失敗します。`install.sh` はこれを
+  検出して止まります。
+- **外向きHTTPSが通ること。** 相場データの取得先に届かないと合成データにしか
+  ならず、シグナルは一切通知されません（合成データでは通知しない設計のため）。
+  `install.sh` は導入の途中でこれを確かめ、届かなければ警告します。
+- **`tsx` は devDependencies にあります。** 監視は TypeScript を直接動かして
+  いるので、`npm ci --omit=dev` で入れると起動できません。`install.sh` は
+  開発依存も込みで入れます。
+
+systemd が無い環境では pm2 でも動きます。上と同じく `npx` を挟まないこと。
+
+```bash
+pm2 start /opt/xm/node_modules/.bin/tsx --name xm-watch -- \
+  scripts/watch.ts --state /var/lib/xm/signal-state.json --interval 300
+pm2 save && pm2 startup
+```
+
 ## フォワードテストの回し方
 
 **ここが唯一、新しい情報を生む作業です。** バックテストは過去に何が起きたかを

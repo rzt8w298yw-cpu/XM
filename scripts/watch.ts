@@ -37,6 +37,7 @@ import {
   type CycleOutcome,
   type HealthState,
 } from "../lib/health";
+import { createShutdown, forcedExitCode } from "../lib/shutdown";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import {
   createConsoleNotifier,
@@ -382,18 +383,30 @@ async function main() {
     return;
   }
 
-  let stopping = false;
-  process.on("SIGINT", () => {
-    stopping = true;
-    console.log("\n終了します。");
-    process.exit(0);
-  });
+  /*
+   * 停止の受け付け。
+   *
+   * 常駐させる相手は systemd や pm2 で、送ってくるのは `SIGTERM` になる。
+   * 以前は `SIGINT` しか見ておらず、しかもその場で `process.exit(0)` して
+   * いたので、`systemctl stop` は即死、判定の途中なら状態を保存しないまま
+   * 終わっていた。走っている周期は最後までやらせ、次の待機だけ飛ばす。
+   */
+  const shutdown = createShutdown();
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => {
+      if (shutdown.request(signal) === "force") {
+        console.log(`\n${signal} を再度受けました。待たずに終了します。`);
+        process.exit(forcedExitCode(signal));
+      }
+      console.log(`\n${signal} を受けました。いまの判定を終えてから終了します。`);
+    });
+  }
 
   // 起動直後に1回走らせ、以降は間隔をあけて繰り返す。
   // 1周期の失敗で監視ごと止まると、以降のシグナルを黙って取りこぼす。
   // 失敗は記録して次の周期で立て直す。
   let consecutiveFailures = 0;
-  while (!stopping) {
+  while (!shutdown.stopping) {
     try {
       await runOnce(args, notifier, strategy);
       consecutiveFailures = 0;
@@ -404,8 +417,10 @@ async function main() {
         `判定に失敗しました（連続${consecutiveFailures}回）: ${message}。次の周期で再試行します。`,
       );
     }
-    await new Promise((resolve) => setTimeout(resolve, args.intervalSeconds * 1000));
+    await shutdown.sleep(args.intervalSeconds * 1000);
   }
+
+  console.log("終了しました。");
 }
 
 main().catch((error) => {
