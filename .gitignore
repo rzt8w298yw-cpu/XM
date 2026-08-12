@@ -19,3 +19,4 @@ npm-debug.log*
 # 検証用の使い捨てスクリプト（先頭が _）
 _*.ts
 .signal-log.jsonl
+.mutate-pending.json

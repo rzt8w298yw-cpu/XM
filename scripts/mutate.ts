@@ -7,12 +7,32 @@
  * テストの件数は品質の証明にならない。コードにわざと小さなバグを入れて
  * テストが落ちるかを確かめ、**落ちなかったもの＝テストの穴**を洗い出す。
  *
- * 各ミューテーションは適用→テスト実行→復元の順で処理し、復元は必ず
- * finally で行う。中断されてもソースが書き換わったまま残らないよう、
- * 開始前にワーキングツリーが綺麗であることを確認する。
+ * 各ミューテーションは適用→テスト実行→復元の順で処理する。
+ *
+ * 復元は finally だけでは足りない。**プロセスがシグナルで殺されると
+ * finally は動かない。** 実際、`timeout 20 npx tsx scripts/mutate.ts` で
+ * 強制終了させたとき、書き換えたままのソースが残った（`summarize` の
+ * 勝ち判定が `>= 0` になっていた）。git status には出るので気づけたが、
+ * 気づかずにコミットすれば、壊れた判定がそのまま入る。
+ *
+ * シグナルハンドラだけでは足りない。テストの実行に `execSync` を使っており、
+ * **メインスレッドが塞がっている間はJSのハンドラが動けない。** 実測でも
+ * SIGTERM を受けたのに復元されなかった。
+ *
+ * そこで、死ぬ側で頑張るのをやめる。書き換える前に「何を戻せばよいか」を
+ * ファイルに残し、**次回の起動時に復旧する。** これならSIGKILLでも
+ * 電源断でも戻せる。シグナルハンドラも残してあるが、それは
+ * 手が空いているとき（Ctrl+C など）に効く補助にすぎない。
  */
 import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import {
+  clearJournal,
+  describeRecovery,
+  recoverFromJournal,
+  writeJournal,
+  type Journal,
+} from "../lib/mutationJournal";
 
 interface Mutation {
   /** どの挙動を壊すのか */
@@ -20,6 +40,35 @@ interface Mutation {
   file: string;
   find: string;
   replace: string;
+}
+
+/** 中断から復旧するための控え。書き換える前に置き、戻したら消す */
+const JOURNAL_PATH = ".mutate-pending.json";
+
+let pending: Journal | null = null;
+
+function restorePending(): boolean {
+  if (pending === null) return false;
+  const { file, original } = pending;
+  pending = null;
+  writeFileSync(file, original, "utf8");
+  clearJournal(JOURNAL_PATH);
+  return true;
+}
+
+// exit は通常終了と例外では動くが、シグナルでは動かないので個別に受ける。
+// ただし execSync 実行中は、どちらも動けない。最後の砦は控えからの復旧のほう
+process.on("exit", restorePending);
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+  process.on(signal, () => {
+    const restored = restorePending();
+    console.error(
+      restored
+        ? "\n中断されました。書き換えたソースは元に戻しました。"
+        : "\n中断されました。",
+    );
+    process.exit(130);
+  });
 }
 
 /**
@@ -602,6 +651,11 @@ function runTests(): boolean {
 }
 
 function main() {
+  // ワーキングツリーの検査より先に。汚れている原因が前回の中断なら、
+  // ここで戻さないと二度と復旧できない
+  const recovery = describeRecovery(recoverFromJournal(JOURNAL_PATH));
+  if (recovery !== null) console.log(recovery);
+
   const filterArg = process.argv.indexOf("--filter");
   const filter = filterArg !== -1 ? process.argv[filterArg + 1] : null;
 
@@ -643,8 +697,15 @@ function main() {
       return;
     }
 
+    const mutated = original.replace(mutation.find, mutation.replace);
+
     try {
-      writeFileSync(mutation.file, original.replace(mutation.find, mutation.replace), "utf8");
+      // 書き換える前に控えを残す。ここで死んでも次回の起動で戻せる
+      pending = {
+        file: mutation.file, original, mutated, description: mutation.description,
+      };
+      writeJournal(JOURNAL_PATH, pending);
+      writeFileSync(mutation.file, mutated, "utf8");
       const passed = runTests();
 
       if (passed) {
@@ -655,8 +716,8 @@ function main() {
         console.log(`  [${index + 1}/${targets.length}] ✓ 検出: ${mutation.description}`);
       }
     } finally {
-      // 何があっても必ず元に戻す
-      writeFileSync(mutation.file, original, "utf8");
+      // 通常経路。シグナルで殺された場合は上のハンドラが同じことをする
+      restorePending();
     }
   });
 
