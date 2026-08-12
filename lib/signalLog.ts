@@ -44,6 +44,27 @@ export interface ReadResult {
  * 追記中にプロセスが落ちると最終行が途中で切れることがあるため、
  * 1行壊れているだけで全体を読めなくしない。
  */
+/**
+ * 記録として使える形か確かめる。
+ *
+ * `JSON.parse` は `any` を返すので、そのまま項目を読むと型は何も
+ * 見てくれない。検査を型ガードにしておくと、**この関数を通らない限り
+ * `SignalRecord` として扱えない**ことをコンパイラが保証する。
+ * 手で書いた検査と、後から足した項目がずれるのを防ぐ。
+ */
+function isSignalRecord(value: unknown): value is SignalRecord {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.barTime === "number" &&
+    typeof record.symbolId === "string" &&
+    (record.signal === "BUY" || record.signal === "SELL") &&
+    typeof record.price === "number" &&
+    typeof record.stopLoss === "number" &&
+    typeof record.takeProfit === "number"
+  );
+}
+
 export function readSignalLog(path: string): ReadResult {
   if (!existsSync(path)) return { records: [], malformed: 0 };
 
@@ -53,19 +74,9 @@ export function readSignalLog(path: string): ReadResult {
 
   for (const line of lines) {
     try {
-      const parsed = JSON.parse(line);
-      if (
-        typeof parsed?.barTime === "number" &&
-        typeof parsed?.symbolId === "string" &&
-        (parsed?.signal === "BUY" || parsed?.signal === "SELL") &&
-        typeof parsed?.price === "number" &&
-        typeof parsed?.stopLoss === "number" &&
-        typeof parsed?.takeProfit === "number"
-      ) {
-        records.push(parsed as SignalRecord);
-      } else {
-        malformed++;
-      }
+      const parsed: unknown = JSON.parse(line);
+      if (isSignalRecord(parsed)) records.push(parsed);
+      else malformed++;
     } catch {
       malformed++;
     }

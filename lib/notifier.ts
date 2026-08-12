@@ -212,11 +212,13 @@ export function createWebhookNotifier(url: string): Notifier {
 /** 送信せず標準出力に書くだけの通知先。動作確認用 */
 export function createConsoleNotifier(): Notifier {
   return {
-    async send(notification) {
+    // interface を満たすために Promise を返すだけ。await するものは無い
+    send(notification) {
       console.log(`[通知] ${notification.title}`);
       console.log(
         notification.body.split("\n").map((line) => `        ${line}`).join("\n"),
       );
+      return Promise.resolve();
     },
   };
 }

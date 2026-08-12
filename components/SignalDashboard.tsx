@@ -56,6 +56,13 @@ const TREND_LABELS: Record<string, string> = {
   FLAT: "レンジ",
 };
 
+/** APIがエラーを返したときの本文。想定と違う形なら null */
+function errorMessageFrom(json: unknown): string | null {
+  if (typeof json !== "object" || json === null) return null;
+  const error = (json as Record<string, unknown>).error;
+  return typeof error === "string" ? error : null;
+}
+
 export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }) {
   const [symbol, setSymbol] = useState(symbols[0]?.id ?? "USDJPY");
   const [data, setData] = useState<SignalApiResponse | null>(null);
@@ -84,11 +91,13 @@ export default function SignalDashboard({ symbols }: { symbols: SymbolOption[] }
         cache: "no-store",
         signal: controller.signal,
       });
-      const json = await response.json();
+      // response.json() は any を返す。そのまま項目を読むと、APIの形が
+      // 変わっても型は何も言わない。unknown で受けて、読む前に確かめる
+      const json: unknown = await response.json();
       if (isStale()) return;
 
       if (!response.ok) {
-        throw new Error(json?.error ?? `HTTP ${response.status}`);
+        throw new Error(errorMessageFrom(json) ?? `HTTP ${response.status}`);
       }
       setData(json as SignalApiResponse);
       setError(null);

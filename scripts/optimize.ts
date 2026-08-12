@@ -197,11 +197,10 @@ async function main() {
   report(
     `勝率${args.minWinRate}%以上を満たす設定（探索期間で判定）`,
     meetsConstraint,
-    args,
   );
 
   const profitable = candidates.filter((c) => c.inSample.trades >= args.minTrades);
-  report("制約なしで期待値が高い設定", profitable, args);
+  report("制約なしで期待値が高い設定", profitable);
 
   console.log("");
   console.log("-".repeat(78));
@@ -236,7 +235,7 @@ async function main() {
   console.log("だけの可能性が高いので採用しないでください。");
 }
 
-function report(title: string, candidates: Candidate[], args: Args) {
+function report(title: string, candidates: Candidate[]) {
   console.log("");
   console.log(title);
   if (candidates.length === 0) {

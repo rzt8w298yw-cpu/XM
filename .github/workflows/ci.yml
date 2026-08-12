@@ -4,9 +4,6 @@
 # ことを覚えているかどうかに依存していた。次に誰が触っても壊れたまま進めない
 # ように、機械に持たせる。
 #
-# `npm run lint` は入れていない。このリポジトリの `next lint` は ESLint の
-# 設定が無く、実行すると対話プロンプトを出して止まる。CIに入れると固まるので、
-# 設定を用意するまで対象外にしてある。
 name: CI
 
 on:
@@ -34,6 +31,9 @@ jobs:
 
       - name: 型チェック
         run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
 
       - name: テスト
         run: npm test

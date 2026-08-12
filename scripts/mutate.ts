@@ -257,8 +257,8 @@ const MUTATIONS: Mutation[] = [
   {
     description: "サポレジ: サポートとレジスタンスの区別を逆にする",
     file: "lib/technicalAnalysis.ts",
-    find: "        type: (price < currentPrice ? \"support\" : \"resistance\") as",
-    replace: "        type: (price > currentPrice ? \"support\" : \"resistance\") as",
+    find: "        type: price < currentPrice ? \"support\" : \"resistance\",",
+    replace: "        type: price > currentPrice ? \"support\" : \"resistance\",",
   },
   {
     description: "サポレジ近接: 許容幅の判定を常に真にする",

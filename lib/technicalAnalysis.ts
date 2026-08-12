@@ -73,7 +73,7 @@ export interface MACDResult {
 export function calculateEMA(values: number[], period: number): number[] {
   if (period <= 0 || values.length < period) return [];
 
-  const out: number[] = new Array(values.length);
+  const out: number[] = new Array<number>(values.length);
   const k = 2 / (period + 1);
 
   let sum = 0;
@@ -92,7 +92,7 @@ export function calculateEMA(values: number[], period: number): number[] {
 export function calculateSMA(values: number[], period: number): number[] {
   if (period <= 0 || values.length < period) return [];
 
-  const out: number[] = new Array(values.length);
+  const out: number[] = new Array<number>(values.length);
   let sum = 0;
   for (let i = 0; i < values.length; i++) {
     sum += values[i];
@@ -106,7 +106,7 @@ export function calculateSMA(values: number[], period: number): number[] {
 export function calculateRSI(closes: number[], period = 14): number[] {
   if (closes.length < period + 1) return [];
 
-  const out: number[] = new Array(closes.length);
+  const out: number[] = new Array<number>(closes.length);
   let gainSum = 0;
   let lossSum = 0;
 
@@ -141,7 +141,7 @@ function rsiFrom(avgGain: number, avgLoss: number): number {
 export function calculateATR(candles: OHLC[], period = 14): number[] {
   if (candles.length < period + 1) return [];
 
-  const trueRanges: number[] = new Array(candles.length);
+  const trueRanges: number[] = new Array<number>(candles.length);
   for (let i = 1; i < candles.length; i++) {
     const c = candles[i];
     const prevClose = candles[i - 1].close;
@@ -152,7 +152,7 @@ export function calculateATR(candles: OHLC[], period = 14): number[] {
     );
   }
 
-  const out: number[] = new Array(candles.length);
+  const out: number[] = new Array<number>(candles.length);
   let sum = 0;
   for (let i = 1; i <= period; i++) sum += trueRanges[i];
   let atr = sum / period;
@@ -317,13 +317,11 @@ export function detectSupportResistance(
   if (current.length > 0) clusters.push(current);
 
   return clusters
-    .map((members) => {
+    .map((members): SupportResistance => {
       const price = members.reduce((sum, m) => sum + m.price, 0) / members.length;
       return {
         price,
-        type: (price < currentPrice ? "support" : "resistance") as
-          | "support"
-          | "resistance",
+        type: price < currentPrice ? "support" : "resistance",
         strength: countVisits(members, swingWindow * 2),
       };
     })

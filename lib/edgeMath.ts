@@ -402,7 +402,7 @@ export function trackRegime(
   if (flipped) {
     message =
       `直近（${latest.label}）で符号が反転しています。` +
-      `前の窓 ${previous!.mean.toFixed(3)} → 今 ${latest.mean.toFixed(3)}。使うのをやめる判断が要ります`;
+      `前の窓 ${previous.mean.toFixed(3)} → 今 ${latest.mean.toFixed(3)}。使うのをやめる判断が要ります`;
   } else if (currentSign > 0) {
     message = `直近（${latest.label}）は ${latest.mean.toFixed(3)} で、効いている向きのままです`;
   } else {

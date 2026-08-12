@@ -36,7 +36,7 @@ export function loadSignalState(path: string): LoadStateResult {
   if (!existsSync(path)) return { state: {}, problem: null };
 
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       return { state: {}, problem: "内容が想定と異なります" };
     }
