@@ -48,12 +48,19 @@ describe("createShutdown", () => {
     expect(Date.now() - started).toBeLessThan(1_000);
   });
 
-  it("0以下の待機は待たない", async () => {
+  it("0以下の待機はタイマーを張らずに返す", async () => {
+    /*
+     * 「速く返る」だけでは足りない。`setTimeout(wake, 0)` でも次の tick で
+     * 返るので、時間で測る限り区別がつかない。待機として登録されない
+     * ことまで見る。Node は負の待機に警告を出すので、そこへ渡さない。
+     */
     const shutdown = createShutdown();
-    const started = Date.now();
-    await shutdown.sleep(0);
-    await shutdown.sleep(-1);
-    expect(Date.now() - started).toBeLessThan(1_000);
+    const zero = shutdown.sleep(0);
+    expect(shutdown.pendingWaits).toBe(0);
+    const negative = shutdown.sleep(-1);
+    expect(shutdown.pendingWaits).toBe(0);
+    await Promise.all([zero, negative]);
+    expect(shutdown.stopping).toBe(false);
   });
 
   it("複数の待機を同時に起こせる", async () => {
