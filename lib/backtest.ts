@@ -473,3 +473,59 @@ function directionStats(trades: Trade[]): DirectionStats {
     profitFactor: grossLoss === 0 ? (grossProfit > 0 ? Infinity : 0) : grossProfit / grossLoss,
   };
 }
+
+// ============================================================
+// 対照実験の判定
+// ============================================================
+
+/**
+ * 戦略とランダムエントリーの比較結果。
+ *
+ * 判定を文言の組み立てから切り離してある。この一式で最も重要な結論を
+ * 出す分岐なので、画面出力の中に埋めるとテストできない。
+ */
+export type ControlVerdict =
+  /** ランダムの散らばりの中にある。優位性があるとは言えない */
+  | "indistinguishable"
+  /** ランダムの全本を上回った */
+  | "above"
+  /** ランダムの全本を下回った。判定が逆に働いている疑い */
+  | "below";
+
+export interface ControlComparison {
+  verdict: ControlVerdict;
+  /** ランダムの勝率の最小 */
+  lowestWinRate: number;
+  /** ランダムの勝率の最大 */
+  highestWinRate: number;
+  /** 損益で戦略以上だったランダムの本数 */
+  beatenBy: number;
+  runs: number;
+}
+
+/**
+ * 戦略の勝率がランダムの散らばりに収まっているかを判定する。
+ *
+ * **境界は「中に入っている」側に倒す。** ちょうど最大値と並んだだけで
+ * 「上回った」と言うと、乱数の引き1つで結論が変わる。優位だと言うには
+ * 全本をはっきり超えている必要がある。
+ */
+export function compareWithControl(
+  strategy: BacktestStats,
+  controls: BacktestStats[],
+): ControlComparison {
+  if (controls.length === 0) {
+    throw new Error("対照実験の結果が1本もありません");
+  }
+
+  const winRates = controls.map((c) => c.winRate);
+  const lowestWinRate = Math.min(...winRates);
+  const highestWinRate = Math.max(...winRates);
+  const beatenBy = controls.filter((c) => c.netPips >= strategy.netPips).length;
+
+  let verdict: ControlVerdict = "indistinguishable";
+  if (strategy.winRate > highestWinRate) verdict = "above";
+  else if (strategy.winRate < lowestWinRate) verdict = "below";
+
+  return { verdict, lowestWinRate, highestWinRate, beatenBy, runs: controls.length };
+}

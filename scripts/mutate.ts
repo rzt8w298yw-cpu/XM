@@ -652,6 +652,37 @@ const MUTATIONS: Mutation[] = [
     find: "if (raw === undefined || raw === \"\") return null;",
     replace: "if (raw === undefined) return null;",
   },
+  // --- 対照実験の判定 ---
+  {
+    description: "対照: 最大と並んだだけで「上回った」と言う",
+    file: "lib/backtest.ts",
+    find: "  if (strategy.winRate > highestWinRate) verdict = \"above\";",
+    replace: "  if (strategy.winRate >= highestWinRate) verdict = \"above\";",
+  },
+  {
+    description: "対照: 最小と並んだだけで「下回った」と言う",
+    file: "lib/backtest.ts",
+    find: "  else if (strategy.winRate < lowestWinRate) verdict = \"below\";",
+    replace: "  else if (strategy.winRate <= lowestWinRate) verdict = \"below\";",
+  },
+  {
+    description: "対照: 散らばりを見ずに常に「区別がつかない」と言う",
+    file: "lib/backtest.ts",
+    find: "  if (strategy.winRate > highestWinRate) verdict = \"above\";\n  else if (strategy.winRate < lowestWinRate) verdict = \"below\";",
+    replace: "",
+  },
+  {
+    description: "対照: 損益で並ばれた本を数えない",
+    file: "lib/backtest.ts",
+    find: "  const beatenBy = controls.filter((c) => c.netPips >= strategy.netPips).length;",
+    replace: "  const beatenBy = controls.filter((c) => c.netPips > strategy.netPips).length;",
+  },
+  {
+    description: "対照: 1本も回していなくても判定を返す（回し忘れが優位に化ける）",
+    file: "lib/backtest.ts",
+    find: "  if (controls.length === 0) {\n    throw new Error(\"対照実験の結果が1本もありません\");\n  }",
+    replace: "",
+  },
   // --- 記録の所在 ---
   {
     description: "記録: ファイルが無くても「ある」と言う（場所の間違いに気づけない）",

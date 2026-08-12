@@ -11,7 +11,9 @@
  */
 import { readFileSync } from "node:fs";
 import {
+  compareWithControl,
   runBacktest,
+  runRandomEntryControl,
   type BacktestStats,
   type Trade,
 } from "../lib/backtest";
@@ -25,7 +27,7 @@ import {
 } from "../lib/equityCurve";
 import { DEFAULT_THRESHOLDS, type SignalThresholds } from "../lib/autoSignalEngine";
 import { fetchMarketData, findSymbolSpec, getSymbolSpec, type SymbolSpec } from "../lib/marketData";
-import type { OHLC } from "../lib/technicalAnalysis";
+import { calculateATR, type OHLC } from "../lib/technicalAnalysis";
 
 interface Args {
   symbol: string;
@@ -42,6 +44,15 @@ interface Args {
   /** 一覧に無い銘柄のCSVを使うとき、1pipの大きさを直接渡す */
   pipSize?: number;
   sweep?: { key: keyof SignalThresholds; values: number[] };
+  /**
+   * ランダムエントリーの対照実験を何本回すか。0で実施しない。
+   *
+   * 戦略の数字だけを見ても、値動きの構造を捉えた結果なのか、単に
+   * 「損切り1に対して利確2」の賭けを繰り返した結果なのかは区別できない。
+   * 件数・損切り幅・利確幅・取引セッションを揃えて入る場所だけを乱数に
+   * すると、その差だけが残る。
+   */
+  controlRuns: number;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -100,6 +111,13 @@ function parseArgs(argv: string[]): Args {
     range1H: map.get("range") ?? "730d",
     syntheticBars: num("synthetic-bars", 9000),
     sweep,
+    controlRuns: (() => {
+      const runs = num("control", 0);
+      if (!Number.isInteger(runs) || runs < 0) {
+        throw new Error(`--control は0以上の整数で指定してください: ${map.get("control")}`);
+      }
+      return runs;
+    })(),
   };
 }
 
@@ -230,6 +248,80 @@ async function main() {
     printStats(result.stats);
     printQuality(result.trades);
     printRecentTrades(result.trades, spec.digits);
+
+    if (args.controlRuns > 0) {
+      printControl(candles1H, result.stats, args.controlRuns, baseConfig);
+    }
+  }
+}
+
+/**
+ * ランダムエントリーとの比較。
+ *
+ * この比較は、この一式で最も重要な数字を出す。README が引用している
+ * 「戦略35.0%はランダム30.9〜37.3%の中」という結論はここから来るが、
+ * 以前はこれを使い捨てのスクリプトで出しており、リポジトリからは
+ * 再現できなかった。**都合の悪い結論ほど、再現できる場所に置く。**
+ *
+ * 種を固定するので、同じデータなら誰が何度回しても同じ数字になる。
+ */
+function printControl(
+  candles1H: OHLC[],
+  strategy: BacktestStats,
+  runs: number,
+  config: Parameters<typeof runRandomEntryControl>[4],
+) {
+  console.log("");
+  console.log("-".repeat(72));
+  console.log(`対照実験: ランダムエントリー ${runs}本`);
+  console.log("-".repeat(72));
+  console.log("件数・損切り幅・利確幅・取引セッションを戦略と揃え、入る場所だけを乱数にします。");
+  console.log("");
+
+  const atrSeries = calculateATR(candles1H, 14);
+  const controls: BacktestStats[] = [];
+
+  for (let i = 0; i < runs; i++) {
+    // 種は実行ごとに固定。乱数の引きで結論が変わってはいけない
+    const control = runRandomEntryControl(
+      candles1H,
+      atrSeries,
+      strategy.trades,
+      1 + i * 7919,
+      config,
+    );
+    controls.push(control.stats);
+    console.log(
+      `  ${String(i + 1).padStart(2)}本目: ${String(control.stats.trades).padStart(4)}件  ` +
+        `勝率 ${fmt(control.stats.winRate).padStart(5)}%  ` +
+        `損益 ${fmt(control.stats.netPips).padStart(9)} pips  ` +
+        `PF ${fmt(control.stats.profitFactor, 2)}`,
+    );
+  }
+
+  const comparison = compareWithControl(strategy, controls);
+
+  console.log("");
+  console.log(
+    `  ランダムの勝率  : ${fmt(comparison.lowestWinRate)}% 〜 ${fmt(comparison.highestWinRate)}%`,
+  );
+  console.log(`  戦略の勝率      : ${fmt(strategy.winRate)}%`);
+  console.log(`  損益で戦略以上だったランダム: ${comparison.beatenBy}/${comparison.runs}本`);
+  console.log("");
+
+  switch (comparison.verdict) {
+    case "indistinguishable":
+      console.log("  → 戦略の勝率はランダムの散らばりの中にあります。");
+      console.log("     この結果からは、エントリー判定に優位性があるとは言えません。");
+      break;
+    case "above":
+      console.log("  → 戦略の勝率はランダムの全本を上回りました。");
+      console.log(`     ただし${runs}本では偶然の可能性が残ります。本数を増やして確かめてください。`);
+      break;
+    case "below":
+      console.log("  → 戦略の勝率はランダムの全本を下回りました。");
+      console.log("     判定が逆に働いている可能性があります。");
+      break;
   }
 }
 
