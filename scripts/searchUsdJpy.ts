@@ -47,6 +47,14 @@ import {
 } from "../lib/wideRules";
 import type { OHLC } from "../lib/technicalAnalysis";
 
+function requireFilter(id: string): RuleFilter {
+  const found = FILTERS.find((f) => f.id === id);
+  if (!found) throw new Error(`フィルターがありません: ${id}`);
+  return found;
+}
+
+const NO_FILTER = requireFilter("none");
+
 interface Args {
   csv1H: string;
   csvDaily: string;
@@ -224,6 +232,8 @@ async function main() {
   // ------------------------------------------------------------------
   const candidates: Candidate[] = [];
   let scanned = 0;
+  /** `none` と同じ結果になり、数えても意味がなかった組み合わせ */
+  let degenerate = 0;
 
   for (const { timeframe, candles } of series) {
     const splitAt = Math.floor(candles.length * args.isShare);
@@ -238,6 +248,26 @@ async function main() {
 
         const scan = scanWideRule(rule, filter, ctx, 0, splitAt);
         if (scan.hits.length < args.minTrades) continue;
+
+        /*
+         * 縮退したフィルターを数えない。
+         *
+         * 日足の足の時刻は 22:00 UTC で固定なので、時間帯フィルターは
+         * 「全部通す」か「全部落とす」のどちらかにしかならない。前者は
+         * `none` と同じ結果を返し、**同じ検定を2回数えることになる。**
+         * 実際、最初の実行では日足の `engulfing + none` と
+         * `engulfing + hours_18_24` が1桁まで同じ数字で並んだ。
+         *
+         * 試行回数を水増しするだけでなく、「複数の条件で確認できた」と
+         * 誤読させるので、`none` と同じ結果になるフィルターは飛ばす。
+         */
+        if (filter.id !== "none") {
+          const plain = scanWideRule(rule, NO_FILTER, ctx, 0, splitAt);
+          if (plain.hits.length === scan.hits.length) {
+            degenerate++;
+            continue;
+          }
+        }
 
         for (const stopMultiplier of STOP_MULTIPLIERS) {
           for (const riskReward of RISK_REWARDS) {
@@ -272,6 +302,12 @@ async function main() {
 
   console.log(" ".repeat(78) + "\r");
   console.log("-".repeat(78));
+  if (degenerate > 0) {
+    const skipped = degenerate * STOP_MULTIPLIERS.length * RISK_REWARDS.length * 3;
+    console.log(
+      `縮退して除外      : ${skipped.toLocaleString()}通り（フィルターが none と同じ結果になるもの）`,
+    );
+  }
   console.log(`関門1（IS 前半70%）  : ${candidates.length} / ${totalCombinations.toLocaleString()} 通過`);
 
   if (candidates.length === 0) {

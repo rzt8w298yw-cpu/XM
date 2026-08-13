@@ -47,6 +47,9 @@ interface Args {
   stopSlippagePips: number;
   dir: string;
   symbol: string;
+  /** どの足で検証するか。日足のルールを1時間足で測っても意味がない */
+  timeframe: "hourly" | "daily";
+  maxHoldingBars: number;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -74,6 +77,8 @@ function parseArgs(argv: string[]): Args {
     stopSlippagePips: num("slippage", 1.0),
     dir: map.get("dir") ?? "data",
     symbol: (map.get("symbol") ?? "USDJPY").toUpperCase(),
+    timeframe: map.get("timeframe") === "daily" ? "daily" : "hourly",
+    maxHoldingBars: num("max-holding", map.get("timeframe") === "daily" ? 20 : 120),
   };
 }
 
@@ -102,6 +107,10 @@ function lowerBound(stats: BacktestStats): number {
   return stats.winRate - 1.96 * Math.sqrt((p * (1 - p)) / stats.trades) * 100;
 }
 
+function suffixFor(timeframe: "hourly" | "daily"): string {
+  return timeframe === "daily" ? "_d1_utc.csv" : "_h1_utc.csv";
+}
+
 function configFor(args: Args, pipSize: number, spread: number, slippage: number): BacktestConfig {
   return {
     pipSize,
@@ -110,9 +119,10 @@ function configFor(args: Args, pipSize: number, spread: number, slippage: number
     spreadPips: spread,
     stopSlippagePips: slippage,
     windowSize: 250,
-    maxHoldingBars: 120,
+    maxHoldingBars: args.maxHoldingBars,
     useStops: true,
-    restrictToSessions: true,
+    // 日足は 22:00 UTC 固定で、ロンドンにもNYにも当たらない
+    restrictToSessions: args.timeframe !== "daily",
   };
 }
 
@@ -141,11 +151,16 @@ function main() {
   console.log("=".repeat(78));
   console.log(`狙い    : ${rule.idea}`);
   console.log(`条件    : ${filter.idea}`);
-  console.log(`決済    : 損切り ${args.stopMultiplier}ATR / RR 1:${args.riskReward}`);
+  console.log(
+    `決済    : 損切り ${args.stopMultiplier}ATR / RR 1:${args.riskReward} / 保有上限 ${args.maxHoldingBars}本`,
+  );
+  console.log(`足      : ${args.timeframe === "daily" ? "日足" : "1時間足"}`);
   console.log("");
 
   const basePipSize = pipSizeFor(args.symbol);
-  const baseCandles = loadCsv(`${args.dir}/${args.symbol.toLowerCase()}_h1_utc.csv`);
+  const baseCandles = loadCsv(
+    `${args.dir}/${args.symbol.toLowerCase()}${suffixFor(args.timeframe)}`,
+  );
   const baseCtx = buildWideContext(baseCandles, basePipSize);
   const baseScan = scanWideRule(rule, filter, baseCtx, 0, baseCandles.length);
 
@@ -153,7 +168,7 @@ function main() {
   // 1. コスト感応度
   // ----------------------------------------------------------------
   console.log("-".repeat(78));
-  console.log(`1. コスト感応度（${args.symbol} 全期間）`);
+  console.log(`1. コスト感応度（${args.symbol} ${args.timeframe === "daily" ? "日足" : "1時間足"} 全期間）`);
   console.log("-".repeat(78));
   console.log("実際に払うコストで優位が残るか。消える点の手前で運用できなければ意味がない。");
   console.log("");
@@ -198,7 +213,11 @@ function main() {
   console.log("-".repeat(78));
   console.log("2. いつ発動しているか");
   console.log("-".repeat(78));
-  console.log("特定の時間帯に偏るなら、その時間帯の実際のスプレッドで測り直す必要があります。");
+  if (args.timeframe === "daily") {
+    console.log("日足なので時刻は 22:00 UTC 固定です。曜日の偏りだけを見ます。");
+  } else {
+    console.log("特定の時間帯に偏るなら、その時間帯の実際のスプレッドで測り直す必要があります。");
+  }
   console.log("");
 
   const byDay = new Map<number, number>();
@@ -216,9 +235,11 @@ function main() {
   console.log(
     `  曜日: ${topDay.map(([d, n]) => `${dayNames[d]}${n}`).join(" ")}`,
   );
-  console.log(
-    `  時刻(UTC): ${topHour.slice(0, 6).map(([h, n]) => `${h}時:${n}`).join(" ")}`,
-  );
+  if (args.timeframe !== "daily") {
+    console.log(
+      `  時刻(UTC): ${topHour.slice(0, 6).map(([h, n]) => `${h}時:${n}`).join(" ")}`,
+    );
+  }
 
   const concentration = total > 0 ? ((topDay[0]?.[1] ?? 0) / total) * 100 : 0;
   if (concentration > 60) {
@@ -247,7 +268,7 @@ function main() {
   );
 
   const files = readdirSync(args.dir)
-    .filter((f) => f.endsWith("_h1_utc.csv"))
+    .filter((f) => f.endsWith(suffixFor(args.timeframe)))
     .sort();
 
   let passed = 0;
