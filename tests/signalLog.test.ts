@@ -237,6 +237,30 @@ describe("reconcileSignal", () => {
 });
 
 describe("summarizeForwardTest", () => {
+  it("利確で終わってもコスト負けなら勝ちに数えない", () => {
+    /*
+     * 利確幅がスプレッドより狭いと、利確に届いても手取りはマイナスになる。
+     * 決済理由で数えるとこれを勝ちに数えてしまい、バックテスト側
+     * （`pips > 0` で数える）と勝率の定義が食い違う。両者は同じ
+     * 損益分岐勝率と突き合わせる数字なので、ずれてはいけない。
+     */
+    const thin = record({ takeProfit: 150.01 }); // 1 pip しかない利確
+    const result = reconcileSignal(thin, [bar(1, 150.05, 149.9)], 0.01, 120, {
+      spreadPips: 2, // 利確幅より広いコスト
+      stopSlippagePips: 0,
+    });
+
+    expect(result.outcome).toBe("take_profit");
+    expect(result.pips).toBeCloseTo(-1, 10); // 1 - 2 = -1
+
+    const summary = summarizeForwardTest([result]);
+    expect(summary.resolved).toBe(1);
+    expect(summary.wins).toBe(0);
+    expect(summary.losses).toBe(1);
+    expect(summary.winRate).toBe(0);
+  });
+
+
   it("未決着は勝敗に数えない", () => {
     const candles = [bar(1, 150.7, 150.1)];
     const openCandles = [bar(1, 150.1, 149.95)];
