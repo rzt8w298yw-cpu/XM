@@ -102,24 +102,52 @@ export interface ReconciledSignal {
   outcome: SignalOutcome;
   /** 決着した足の時刻。未決着ならnull */
   resolvedAt: number | null;
-  /** スプレッド控除前の損益（pips）。未決着ならnull */
+  /** コスト控除後の損益（pips）。未決着ならnull */
   pips: number | null;
   /** 決着までにかかった1H足の本数 */
   barsToResolve: number | null;
 }
 
+/** 突き合わせに使うコスト。バックテストと同じものを渡すこと */
+export interface ReconcileCost {
+  /** 往復のスプレッド（pips）。全トレードの損益から差し引く */
+  spreadPips: number;
+  /** 損切りの滑り（pips）。損切りは値動きが速い局面なので不利に約定する */
+  stopSlippagePips: number;
+}
+
+/** コストを指定しなかった場合。`DEFAULT_BACKTEST_CONFIG` と同じ値 */
+export const DEFAULT_RECONCILE_COST: ReconcileCost = {
+  spreadPips: 1.0,
+  stopSlippagePips: 0.5,
+};
+
 /**
  * 記録したシグナルを、その後の実際の値動きと突き合わせる。
  *
  * バックテストの `simulateTrade` と同じ約束事に揃えてある:
- * 同じ足で損切りと利確の両方に触れた場合は損切りを採用する。
- * 1H足からは足の中の到達順が分からないため、成績を良く見せない側を採る。
+ *
+ * - 同じ足で損切りと利確の両方に触れた場合は損切りを採用する。
+ *   1H足からは足の中の到達順が分からないため、成績を良く見せない側を採る。
+ * - **スプレッドを全トレードから引く。**
+ * - **損切りは不利な方向に滑らせる。**
+ * - **足が損切りを飛び越えて始まったら、指定値ではなく始値で約定する。**
+ *
+ * 後ろの3つは以前ここに無かった。値幅をそのまま pips に直しているだけで、
+ * コストを一切引いていなかった。**フォワードテストは、この一式で唯一
+ * 新しい情報を生む経路なのに、いちばん楽観的だった。**
+ *
+ * 実測すると、同じシグナル・同じ決済水準でバックテストが +302.1 pips の
+ * ところ、ここは +833.1 pips を返していた。1トレードあたり 1.21 pips の
+ * 差で、**実測できている期待値（0.69 pips/トレード）より大きい。**
+ * つまり負けている手法を勝っていると報告する。
  */
 export function reconcileSignal(
   record: SignalRecord,
   candles1H: OHLC[],
   pipSize: number,
   maxHoldingBars = 120,
+  cost: ReconcileCost = DEFAULT_RECONCILE_COST,
 ): ReconciledSignal {
   // 記録した足より後の足だけを見る（記録時点の足自体は判定に使った足）
   const forward = candles1H.filter((c) => c.timestamp > record.barTime);
@@ -129,6 +157,7 @@ export function reconcileSignal(
   }
 
   const isBuy = record.signal === "BUY";
+  const sign = isBuy ? 1 : -1;
   const limit = Math.min(forward.length, maxHoldingBars);
 
   for (let i = 0; i < limit; i++) {
@@ -140,20 +169,28 @@ export function reconcileSignal(
 
     // 悲観側: 両方に触れたら損切り扱い
     if (hitStop) {
+      // 窓を開けて損切りを飛び越えていたら、指定値では約定しない
+      const gappedThrough = isBuy
+        ? candle.open < record.stopLoss
+        : candle.open > record.stopLoss;
+      const fillBase = gappedThrough ? candle.open : record.stopLoss;
+      const filled = fillBase - cost.stopSlippagePips * pipSize * sign;
+
       return {
         record,
         outcome: "stop_loss",
         resolvedAt: candle.timestamp,
-        pips: signedPips(record.stopLoss, record, pipSize),
+        pips: signedPips(filled, record, pipSize) - cost.spreadPips,
         barsToResolve: i + 1,
       };
     }
     if (hitTarget) {
+      // 利確は指値なので滑らせない。窓が有利に開いても指定値のまま
       return {
         record,
         outcome: "take_profit",
         resolvedAt: candle.timestamp,
-        pips: signedPips(record.takeProfit, record, pipSize),
+        pips: signedPips(record.takeProfit, record, pipSize) - cost.spreadPips,
         barsToResolve: i + 1,
       };
     }
@@ -178,10 +215,18 @@ export interface ForwardTestSummary {
   netPips: number;
 }
 
-/** 照合結果をまとめる。未決着のものは勝敗に数えない */
+/**
+ * 照合結果をまとめる。未決着のものは勝敗に数えない。
+ *
+ * **勝ちは「利確で終わった」ではなく「損益がプラス」で数える。**
+ * 利確幅がスプレッドより小さいと、利確に届いても手取りはマイナスになる。
+ * バックテスト側（`summarize`）は `pips > 0` で数えているので、ここを
+ * 決済理由で数えると、同じトレードの勝率が2つの経路で食い違う。
+ * 損益分岐勝率と突き合わせる数字なので、定義がずれてはいけない。
+ */
 export function summarizeForwardTest(results: ReconciledSignal[]): ForwardTestSummary {
   const resolved = results.filter((r) => r.outcome === "take_profit" || r.outcome === "stop_loss");
-  const wins = resolved.filter((r) => r.outcome === "take_profit");
+  const wins = resolved.filter((r) => (r.pips ?? 0) > 0);
   const netPips = resolved.reduce((sum, r) => sum + (r.pips ?? 0), 0);
 
   return {

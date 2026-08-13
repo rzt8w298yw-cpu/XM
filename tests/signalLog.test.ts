@@ -1,9 +1,17 @@
 /**
  * シグナル記録と照合の検証。
  *
- * フォワードテストの数字がここで作られるので、バックテストと同じ
- * 悲観側の約束事（同一足で両側に触れたら損切り）が守られていることと、
- * 壊れた行があっても全体が読めなくならないことを固定する。
+ * フォワードテストの数字がここで作られる。**この一式で唯一、新しい情報を
+ * 生む経路**なので、バックテストと同じ約束事が守られていることを固定する:
+ *
+ * - 同一足で両側に触れたら損切り（悲観側）
+ * - スプレッドを全トレードから引く
+ * - 損切りは不利な方向に滑る
+ * - 窓が損切りを飛び越えたら始値で約定する
+ *
+ * 後ろの3つは以前ここに無く、値幅をそのまま pips に直していた。実測で
+ * バックテストより 1トレードあたり 1.21 pips 良く出ており、その差は
+ * 測定できている期待値（0.69 pips）より大きかった。
  */
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -35,6 +43,9 @@ function record(overrides: Partial<SignalRecord> = {}): SignalRecord {
     ...overrides,
   };
 }
+
+/** コストを0にして、値幅だけを見たいとき */
+const NO_COST = { spreadPips: 0, stopSlippagePips: 0 };
 
 function bar(offsetHours: number, high: number, low: number): OHLC {
   return {
@@ -104,7 +115,7 @@ describe("記録の読み書き", () => {
 describe("reconcileSignal", () => {
   it("利確に到達したら take_profit と利益を返す", () => {
     const candles = [bar(1, 150.2, 149.9), bar(2, 150.7, 150.1)];
-    const result = reconcileSignal(record(), candles, 0.01);
+    const result = reconcileSignal(record(), candles, 0.01, 120, NO_COST);
     expect(result.outcome).toBe("take_profit");
     expect(result.pips).toBeCloseTo(60, 10); // 150.60 - 150.00 = 60pips
     expect(result.barsToResolve).toBe(2);
@@ -112,7 +123,7 @@ describe("reconcileSignal", () => {
 
   it("損切りに到達したら stop_loss と損失を返す", () => {
     const candles = [bar(1, 150.2, 149.9), bar(2, 150.1, 149.6)];
-    const result = reconcileSignal(record(), candles, 0.01);
+    const result = reconcileSignal(record(), candles, 0.01, 120, NO_COST);
     expect(result.outcome).toBe("stop_loss");
     expect(result.pips).toBeCloseTo(-30, 10);
   });
@@ -126,9 +137,80 @@ describe("reconcileSignal", () => {
   it("SELLは方向が反転する", () => {
     const sell = record({ signal: "SELL", stopLoss: 150.3, takeProfit: 149.4 });
     const candles = [bar(1, 150.1, 149.3)];
-    const result = reconcileSignal(sell, candles, 0.01);
+    const result = reconcileSignal(sell, candles, 0.01, 120, NO_COST);
     expect(result.outcome).toBe("take_profit");
     expect(result.pips).toBeCloseTo(60, 10); // 150.00 - 149.40 = 60pips
+  });
+
+  it("スプレッドを利確からも損切りからも引く", () => {
+    // 引き忘れると、フォワードテストが実際より良く出る
+    const win = reconcileSignal(record(), [bar(1, 150.7, 150.1)], 0.01, 120, {
+      spreadPips: 2,
+      stopSlippagePips: 0,
+    });
+    expect(win.pips).toBeCloseTo(58, 10); // 60 - 2
+
+    const loss = reconcileSignal(record(), [bar(1, 150.1, 149.6)], 0.01, 120, {
+      spreadPips: 2,
+      stopSlippagePips: 0,
+    });
+    expect(loss.pips).toBeCloseTo(-32, 10); // -30 - 2
+  });
+
+  it("損切りは不利な方向に滑り、利確は滑らない", () => {
+    // 損切りは成行で約定するので滑る。利確は指値なので滑らない
+    const loss = reconcileSignal(record(), [bar(1, 150.1, 149.6)], 0.01, 120, {
+      spreadPips: 0,
+      stopSlippagePips: 1.5,
+    });
+    expect(loss.pips).toBeCloseTo(-31.5, 10);
+
+    const win = reconcileSignal(record(), [bar(1, 150.7, 150.1)], 0.01, 120, {
+      spreadPips: 0,
+      stopSlippagePips: 1.5,
+    });
+    expect(win.pips).toBeCloseTo(60, 10);
+  });
+
+  it("SELLでも滑りは不利な方向（高く約定する）", () => {
+    const sell = record({ signal: "SELL", stopLoss: 150.3, takeProfit: 149.4 });
+    const result = reconcileSignal(sell, [bar(1, 150.4, 150.0)], 0.01, 120, {
+      spreadPips: 0,
+      stopSlippagePips: 1.5,
+    });
+    expect(result.outcome).toBe("stop_loss");
+    // 150.30 で約定するはずが 150.315 になる → -31.5 pips
+    expect(result.pips).toBeCloseTo(-31.5, 10);
+  });
+
+  it("窓が損切りを飛び越えたら始値で約定する", () => {
+    /*
+     * 週末を挟むと窓が開く。損切りが窓の内側にあるとき、置いた値段では
+     * 約定しない。ここを指定値のままにすると、飛んだぶんの損失が消える。
+     */
+    const gapped: OHLC = {
+      timestamp: BASE + HOUR,
+      open: 149.0, // 損切り 149.70 を飛び越えて始まった
+      high: 149.2,
+      low: 148.8,
+      close: 149.1,
+    };
+    const result = reconcileSignal(record(), [gapped], 0.01, 120, NO_COST);
+    expect(result.outcome).toBe("stop_loss");
+    // 149.70 なら -30 pips。実際は 149.00 で約定するので -100 pips
+    expect(result.pips).toBeCloseTo(-100, 10);
+  });
+
+  it("窓が無ければ指定値で約定する", () => {
+    const normal: OHLC = {
+      timestamp: BASE + HOUR,
+      open: 149.9, // 損切りの手前で始まっている
+      high: 150.0,
+      low: 149.6,
+      close: 149.65,
+    };
+    const result = reconcileSignal(record(), [normal], 0.01, 120, NO_COST);
+    expect(result.pips).toBeCloseTo(-30, 10);
   });
 
   it("どちらにも触れていなければ open", () => {

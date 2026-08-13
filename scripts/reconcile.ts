@@ -14,7 +14,6 @@
 import { readFileSync } from "node:fs";
 import { parseCandleCsv } from "../lib/csv";
 import { judgeTrackRecord } from "../lib/edgeMath";
-import { loadStrategyConfig } from "../lib/strategyConfig";
 import { fetchMarketData, findSymbolSpec } from "../lib/marketData";
 import {
   readSignalLog,
@@ -31,6 +30,10 @@ interface Args {
   symbolFilter?: string;
   maxHoldingBars: number;
   showTrades: number;
+  /** 往復のスプレッド（pips）。バックテストと同じ値にすること */
+  spreadPips: number;
+  /** 損切りの滑り（pips） */
+  stopSlippagePips: number;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -55,6 +58,8 @@ function parseArgs(argv: string[]): Args {
     symbolFilter: map.get("symbol"),
     maxHoldingBars: num("max-holding", 120),
     showTrades: num("show", 15),
+    spreadPips: num("spread", 1.0),
+    stopSlippagePips: num("slippage", 0.5),
   };
 }
 
@@ -159,7 +164,10 @@ async function main() {
     }
 
     const results = group.map((record) =>
-      reconcileSignal(record, candles, spec.pipSize, args.maxHoldingBars),
+      reconcileSignal(record, candles, spec.pipSize, args.maxHoldingBars, {
+        spreadPips: args.spreadPips,
+        stopSlippagePips: args.stopSlippagePips,
+      }),
     );
     all.push(...results);
 
@@ -194,8 +202,10 @@ async function main() {
   console.log(`勝率 ${fmt(overall.winRate)}%（${overall.wins}勝 ${overall.losses}敗）`);
   console.log(`損益 ${fmt(overall.netPips)} pips　1件あたり ${fmt(overall.netPips / overall.resolved, 2)} pips`);
   console.log("");
-  console.log("※ スプレッドは差し引いていません。バックテストの数字と比べる際は");
-  console.log("   `--spread` ぶんだけこちらが有利に出ている点に注意してください。");
+  console.log(
+    `※ コストは各トレードから控除済みです（スプレッド ${args.spreadPips} + 損切りの滑り ${args.stopSlippagePips} pips）。`,
+  );
+  console.log("   バックテストと比べるときは、そちらの --spread / --slippage と揃えてください。");
 
   /*
    * ここまでは「何が起きたか」。この先が「それで何が言えるか」。
@@ -204,17 +214,31 @@ async function main() {
    * 損益分岐を超えているか、超えていたとしてそれを言い切れる件数があるか、
    * の2つが揃ったとき。手で `npm run edge` に写さなくて済むよう、ここで出す。
    */
-  const { config: strategy } = loadStrategyConfig();
   const pipsPerTrade = all
     .filter((r) => r.outcome === "take_profit" || r.outcome === "stop_loss")
     .map((r) => r.pips ?? 0);
-  const judgement = judgeTrackRecord(pipsPerTrade, strategy.assumedCostPips);
+
+  /*
+   * コストを渡さない（0）。
+   *
+   * `judgeTrackRecord` は「実測の勝ち負けの幅 + コスト」から損益分岐を出す。
+   * ここに渡す損益は `reconcileSignal` がすでにスプレッドと滑りを引いた後の
+   * 値なので、もう一度コストを足すと**同じコストを二度数える**ことになり、
+   * 損益分岐が実際より高く出る。
+   *
+   * どちらで引くかは選べるが、両方で引いてはいけない。決済ごとの実額で
+   * 引くほうが正確なので（利確と損切りで滑り方が違う）、そちらに寄せた。
+   */
+  const judgement = judgeTrackRecord(pipsPerTrade, 0);
 
   console.log("");
   console.log("=".repeat(76));
   console.log("この記録で何が言えるか");
   console.log("=".repeat(76));
-  console.log(`損益分岐の的中率  ${fmt(judgement.requiredWinRate)}%（実測の勝ち負けの幅とコスト ${strategy.assumedCostPips} pips から）`);
+  console.log(
+    `損益分岐の的中率  ${fmt(judgement.requiredWinRate)}%（実測の勝ち負けの幅から。` +
+      `コストは各トレードから控除済み: スプレッド ${args.spreadPips} + 滑り ${args.stopSlippagePips} pips）`,
+  );
   console.log(`  実測の的中率    ${fmt(judgement.winRate)}%`);
   console.log(`  平均利益/損失   ${fmt(judgement.avgWinPips)} / ${fmt(judgement.avgLossPips)} pips`);
   console.log(`  期待値          ${fmt(judgement.expectancyPips, 2)} pips　ばらつき ${fmt(judgement.stdDevPips)} pips`);

@@ -714,6 +714,49 @@ const MUTATIONS: Mutation[] = [
     find: "i < Math.min(toIndex, ctx.candles.length - 1); i++) {",
     replace: "i < Math.min(toIndex, ctx.candles.length); i++) {",
   },
+  // --- 照合（フォワードテスト） ---
+  {
+    description: "照合: 利確からスプレッドを引かない",
+    file: "lib/signalLog.ts",
+    find: "        pips: signedPips(record.takeProfit, record, pipSize) - cost.spreadPips,",
+    replace: "        pips: signedPips(record.takeProfit, record, pipSize),",
+  },
+  {
+    description: "照合: 損切りからスプレッドを引かない",
+    file: "lib/signalLog.ts",
+    find: "        pips: signedPips(filled, record, pipSize) - cost.spreadPips,",
+    replace: "        pips: signedPips(filled, record, pipSize),",
+  },
+  {
+    description: "照合: 損切りを滑らせない（実際より損失が小さく出る）",
+    file: "lib/signalLog.ts",
+    find: "      const filled = fillBase - cost.stopSlippagePips * pipSize * sign;",
+    replace: "      const filled = fillBase;",
+  },
+  {
+    description: "照合: 滑りを有利な方向に付ける",
+    file: "lib/signalLog.ts",
+    find: "      const filled = fillBase - cost.stopSlippagePips * pipSize * sign;",
+    replace: "      const filled = fillBase + cost.stopSlippagePips * pipSize * sign;",
+  },
+  {
+    description: "照合: 窓が損切りを飛び越えても指定値で約定したことにする",
+    file: "lib/signalLog.ts",
+    find: "      const fillBase = gappedThrough ? candle.open : record.stopLoss;",
+    replace: "      const fillBase = record.stopLoss;",
+  },
+  {
+    description: "照合: 利確にも滑りを付ける（指値なので滑らないはず）",
+    file: "lib/signalLog.ts",
+    find: "        pips: signedPips(record.takeProfit, record, pipSize) - cost.spreadPips,",
+    replace: "        pips: signedPips(record.takeProfit, record, pipSize) - cost.spreadPips - cost.stopSlippagePips,",
+  },
+  {
+    description: "照合: 勝ちを損益ではなく決済理由で数える（コスト負けの利確を勝ちにする）",
+    file: "lib/signalLog.ts",
+    find: "  const wins = resolved.filter((r) => (r.pips ?? 0) > 0);",
+    replace: "  const wins = resolved.filter((r) => r.outcome === \"take_profit\");",
+  },
   // --- 監視対象 ---
   {
     description: "監視: シグナル対象を全銘柄に広げる（ドル円だけの指定を無視）",
