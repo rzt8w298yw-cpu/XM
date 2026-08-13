@@ -652,6 +652,68 @@ const MUTATIONS: Mutation[] = [
     find: "if (raw === undefined || raw === \"\") return null;",
     replace: "if (raw === undefined) return null;",
   },
+  // --- 追加した指標 ---
+  {
+    description: "ストキャス: 値幅0の区間を50ではなく0にする（売られすぎに化ける）",
+    file: "lib/indicators.ts",
+    find: "    rawK[i] = range === 0 ? 50 : ((candles[i].close - low) / range) * 100;",
+    replace: "    rawK[i] = range === 0 ? 0 : ((candles[i].close - low) / range) * 100;",
+  },
+  {
+    description: "ADX: 上下の動きの大きいほうだけを採る条件を外す",
+    file: "lib/indicators.ts",
+    find: "    plusDM[i] = upMove > downMove && upMove > 0 ? upMove : 0;",
+    replace: "    plusDM[i] = upMove > 0 ? upMove : 0;",
+  },
+  {
+    description: "回帰の傾き: 分子から平均の項を落とす",
+    file: "lib/indicators.ts",
+    find: "    out[i] = (period * sumXY - sumX * sumY) / denominator;",
+    replace: "    out[i] = (period * sumXY) / denominator;",
+  },
+  {
+    description: "ピボット: 一つ前ではなく当該足から出す（先読み）",
+    file: "lib/indicators.ts",
+    find: "    const prev = candles[i - 1];\n    const p = (prev.high + prev.low + prev.close) / 3;",
+    replace: "    const prev = candles[i];\n    const p = (prev.high + prev.low + prev.close) / 3;",
+  },
+  {
+    description: "NR7: 同じ幅の足があっても「最も狭い」とみなす",
+    file: "lib/indicators.ts",
+    find: "      if (candles[j].high - candles[j].low <= range) {",
+    replace: "      if (candles[j].high - candles[j].low < range) {",
+  },
+  {
+    description: "SAR: 直近2本のレンジに食い込ませる（反転が早まる）",
+    file: "lib/indicators.ts",
+    find: "      current = Math.min(current, candles[i - 1].low, candles[i - 2].low);",
+    replace: "      current = Math.min(current, candles[i - 1].low);",
+  },
+  {
+    description: "戻り率: 高値と安値のどちらが後かを見ない",
+    file: "lib/indicators.ts",
+    find: "  const upswing = highIndex > lowIndex;",
+    replace: "  const upswing = true;",
+  },
+  // --- 広域ルールの走査 ---
+  {
+    description: "走査: フィルターを無視して全部通す",
+    file: "lib/wideRules.ts",
+    find: "    if (!filter.allows(scoped, direction)) continue;",
+    replace: "",
+  },
+  {
+    description: "走査: ウォームアップを待たずに判定を始める",
+    file: "lib/wideRules.ts",
+    find: "  for (let i = Math.max(fromIndex, 250); i < Math.min(toIndex, ctx.candles.length - 1); i++) {",
+    replace: "  for (let i = fromIndex; i < Math.min(toIndex, ctx.candles.length - 1); i++) {",
+  },
+  {
+    description: "走査: 最後の足まで判定する（次の足で約定できない）",
+    file: "lib/wideRules.ts",
+    find: "i < Math.min(toIndex, ctx.candles.length - 1); i++) {",
+    replace: "i < Math.min(toIndex, ctx.candles.length); i++) {",
+  },
   // --- 監視対象 ---
   {
     description: "監視: シグナル対象を全銘柄に広げる（ドル円だけの指定を無視）",

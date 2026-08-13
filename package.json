@@ -16,7 +16,9 @@
     "mutate": "tsx scripts/mutate.ts",
     "reconcile": "tsx scripts/reconcile.ts",
     "edge": "tsx scripts/edge.ts",
-    "search-winrate": "tsx scripts/searchWinRate.ts"
+    "search-winrate": "tsx scripts/searchWinRate.ts",
+    "search-usdjpy": "tsx scripts/searchUsdJpy.ts",
+    "validate-rule": "tsx scripts/validateRule.ts"
   },
   "dependencies": {
     "next": "^15.5.23",
