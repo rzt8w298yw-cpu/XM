@@ -141,6 +141,25 @@ describe("calculateADX", () => {
     }
   });
 
+  it("上下の動きは大きいほうだけを数える", () => {
+    /*
+     * +DM と -DM は「大きいほうだけ」を採るのが定義。両方を数えると
+     * レンジ相場でも両方のDIが立ち上がり、トレンドの有無が読めなくなる。
+     * 前の足を両側に包む足（外側の足）を作って確かめる。
+     */
+    const candles = bars([
+      [100, 101, 99, 100],
+      // 高値は+1、安値は-3。下の動きのほうが大きいので +DM は0でなければならない
+      [100, 102, 96, 97],
+      ...Array.from({ length: 40 }, (): [number, number, number, number] => [97, 97.5, 96.5, 97]),
+    ]);
+    const { plusDI, minusDI } = calculateADX(candles, 14);
+    const i = candles.length - 1;
+    // 下の動きだけを数えていれば -DI が支配的になる
+    expect(minusDI[i]).toBeGreaterThan(plusDI[i] ?? 0);
+    expect(plusDI[i]).toBeCloseTo(0, 6);
+  });
+
   it("足が足りなければ全部 NaN で返す（落ちない）", () => {
     const { adx } = calculateADX(rising(10), 14);
     expect(adx.every((v) => Number.isNaN(v))).toBe(true);
@@ -185,6 +204,26 @@ describe("calculateParabolicSAR", () => {
     const down = calculateParabolicSAR(downCandles);
     expect(down.rising[59]).toBe(false);
     expect(down.sar[59]).toBeGreaterThan(downCandles[59].high);
+  });
+
+  it("直近2本のレンジに食い込ませない", () => {
+    /*
+     * SARは直近2本の高安の内側に入ってはいけない。ここを1本しか見ないと、
+     * 前々足の安値を割った位置にSARが置かれ、本来より早く反転する。
+     * 押しを作って、その安値より下にSARが留まることを見る。
+     */
+    const spec: [number, number, number, number][] = [];
+    for (let i = 0; i < 20; i++) spec.push([100 + i, 100.5 + i, 99.5 + i, 100.4 + i]);
+    // 深い押しを1本入れる（前々足の安値を大きく下回る）
+    spec.push([119, 119.5, 112, 118]);
+    spec.push([118, 119, 117.5, 118.8]);
+    spec.push([118.8, 120, 118, 119.8]);
+    const candles = bars(spec);
+    const { sar, rising } = calculateParabolicSAR(candles);
+    const i = candles.length - 1;
+    if (rising[i]) {
+      expect(sar[i]).toBeLessThanOrEqual(Math.min(candles[i - 1].low, candles[i - 2].low));
+    }
   });
 
   it("トレンドが反転すれば rising も反転する", () => {
@@ -279,6 +318,22 @@ describe("retracementRatio", () => {
     expect(result).not.toBeNull();
     expect(result?.upswing).toBe(true);
     // 高値109、安値100、終値105 → (109-105)/9 = 0.444
+    expect(result?.ratio).toBeCloseTo(0.444, 2);
+  });
+
+  it("下降のあとの戻りは upswing=false になる", () => {
+    /*
+     * 高値と安値のどちらが後に来たかで、いま上昇の途中か下降の途中かが
+     * 決まる。ここを見ないと、下げ相場の戻りを「押し目買い」と読む。
+     */
+    const spec: [number, number, number, number][] = [];
+    for (let i = 0; i < 10; i++) spec.push([110 - i, 110 - i, 110 - i, 110 - i]);
+    spec.push([105, 105, 105, 105]); // 安値101から戻した
+    const result = retracementRatio(bars(spec), spec.length - 1, 10);
+
+    expect(result).not.toBeNull();
+    expect(result?.upswing).toBe(false);
+    // 安値101、高値110、終値105 → (105-101)/9 = 0.444
     expect(result?.ratio).toBeCloseTo(0.444, 2);
   });
 

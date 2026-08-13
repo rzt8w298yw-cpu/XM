@@ -120,23 +120,45 @@ describe("先読みが無いこと", () => {
 });
 
 describe("フィルター", () => {
-  it("none は素通しで、他は必ず件数を減らすか同じにする", () => {
+  it("none 以外はすべて件数を実際に減らす", () => {
+    /*
+     * 「減るか同じ」で通してはいけない。**フィルターが完全に無視されても
+     * 同じ件数になるので、その条件では素通りする。** 実際、走査が
+     * フィルターを掛けなくなるミューテーションがこれをすり抜けた。
+     * none 以外は厳密に減ることを求める。
+     */
     const ctx = buildWideContext(CANDLES, PIP);
     const rule = WIDE_RULES.find((r) => r.id === "bb_middle_cross");
-    expect(rule).toBeDefined();
-    if (!rule) return;
+    if (!rule) throw new Error("bb_middle_cross がありません");
 
-    const none = FILTERS.find((f) => f.id === "none");
-    expect(none).toBeDefined();
-    if (!none) return;
-
-    const baseline = scanWideRule(rule, none, ctx, 0, CANDLES.length).hits.length;
+    const baseline = scanWideRule(rule, NONE, ctx, 0, CANDLES.length).hits.length;
     expect(baseline).toBeGreaterThan(0);
 
     for (const filter of FILTERS) {
       const count = scanWideRule(rule, filter, ctx, 0, CANDLES.length).hits.length;
-      expect(count, `${filter.id} が件数を増やしています`).toBeLessThanOrEqual(baseline);
+      if (filter.id === "none") {
+        expect(count).toBe(baseline);
+        continue;
+      }
+      expect(count, `${filter.id} が件数を減らしていません`).toBeLessThan(baseline);
     }
+  });
+
+  it("時間帯フィルターは互いに重ならず、合計しても全体に届かない", () => {
+    // ロンドン・NY（7〜21時）と東京（0〜7時）で、21〜24時はどちらにも入らない
+    const ctx = buildWideContext(CANDLES, PIP);
+    const rule = WIDE_RULES.find((r) => r.id === "bb_middle_cross");
+    const londonNy = FILTERS.find((f) => f.id === "london_ny");
+    const tokyo = FILTERS.find((f) => f.id === "tokyo");
+    if (!rule || !londonNy || !tokyo) throw new Error("見つかりません");
+
+    const total = scanWideRule(rule, NONE, ctx, 0, CANDLES.length).hits.length;
+    const a = scanWideRule(rule, londonNy, ctx, 0, CANDLES.length).hits.length;
+    const b = scanWideRule(rule, tokyo, ctx, 0, CANDLES.length).hits.length;
+
+    expect(a).toBeGreaterThan(0);
+    expect(b).toBeGreaterThan(0);
+    expect(a + b).toBeLessThan(total);
   });
 
   it("with_trend と against_trend は同じ足で同時に成立しない", () => {
@@ -195,15 +217,24 @@ describe("scanWideRule", () => {
     }
   });
 
-  it("最後の足では判定しない（次の足で約定できないため）", () => {
+  it("判定した足の本数が、ウォームアップと最終足の扱いと厳密に一致する", () => {
+    /*
+     * シグナルの位置だけを見ると、たまたまその足でルールが発動しなければ
+     * すり抜ける。**判定した本数**なら、ルールの気まぐれに左右されない。
+     *
+     * 250本目から始め、最後の足は判定しない（次の足で約定できないため）。
+     * よって 250 〜 length-2 の length-251 本。
+     */
     const ctx = buildWideContext(CANDLES, PIP);
     const rule = WIDE_RULES.find((r) => r.id === "bb_middle_cross");
-    const none = FILTERS.find((f) => f.id === "none");
-    if (!rule || !none) throw new Error("見つかりません");
+    if (!rule) throw new Error("bb_middle_cross がありません");
 
-    const scan = scanWideRule(rule, none, ctx, 0, CANDLES.length);
+    const scan = scanWideRule(rule, NONE, ctx, 0, CANDLES.length);
+    expect(scan.barsEvaluated).toBe(CANDLES.length - 251);
+
     for (const hit of scan.hits) {
       expect(hit.index).toBeLessThan(CANDLES.length - 1);
+      expect(hit.index).toBeGreaterThanOrEqual(250);
     }
   });
 

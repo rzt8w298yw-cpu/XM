@@ -88,11 +88,31 @@ function parseArgs(argv: string[]): Args {
   };
 }
 
+type Timeframe = "hourly" | "daily";
+
 const PIP_SIZE = 0.01;
 const STOP_MULTIPLIERS = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0];
-const RISK_REWARDS = [0.4, 0.5, 0.6, 0.75, 1.0, 1.25, 1.5, 2.0];
 
-type Timeframe = "hourly" | "daily";
+/**
+ * 利確幅（損切りに対する比）。
+ *
+ * 勝率を上げたいなら利確を近づける方向（比を小さく）だが、そこは損益分岐が
+ * 急に上がる領域でもある。0.3 から 3.0 まで細かく振って、どこかに窓が
+ * 空いていないかを見る。
+ */
+const RISK_REWARDS = [0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.9, 1.0, 1.25, 1.5, 2.0, 3.0];
+
+/**
+ * 決済されないまま持ち続ける上限。
+ *
+ * 損切りにも利確にも触れないまま時間が過ぎた場合にどこで諦めるか。
+ * 短く切ると勝率は下がるが1件あたりの損失も小さくなる——ここも
+ * 勝率を動かす要因なので、固定せずに振る。
+ */
+const HOLDING_BARS: Record<Timeframe, number[]> = {
+  hourly: [24, 72, 120],
+  daily: [5, 10, 20],
+};
 
 interface Candidate {
   timeframe: Timeframe;
@@ -100,6 +120,7 @@ interface Candidate {
   filter: RuleFilter;
   stopMultiplier: number;
   riskReward: number;
+  maxHoldingBars: number;
   is: BacktestStats;
   isBreakEven: number;
 }
@@ -141,6 +162,7 @@ function configFor(
   timeframe: Timeframe,
   stopMultiplier: number,
   riskReward: number,
+  maxHoldingBars: number,
   args: Args,
 ): BacktestConfig {
   return {
@@ -150,7 +172,7 @@ function configFor(
     spreadPips: args.spreadPips,
     stopSlippagePips: args.stopSlippagePips,
     windowSize: 250,
-    maxHoldingBars: timeframe === "daily" ? 20 : 120,
+    maxHoldingBars,
     useStops: true,
     // 日足の足は 22:00 UTC 固定で、ロンドンにもNYにも当たらない。
     // 絞ったままだと対照の候補が空になる
@@ -170,19 +192,25 @@ async function main() {
     { timeframe: "daily", candles: loadCsv(args.csvDaily) },
   ];
 
-  const totalCombinations =
-    series.length *
-    WIDE_RULES.length *
-    FILTERS.length *
-    STOP_MULTIPLIERS.length *
-    RISK_REWARDS.length;
+  const totalCombinations = series.reduce(
+    (sum, { timeframe }) =>
+      sum +
+      WIDE_RULES.length *
+        FILTERS.length *
+        STOP_MULTIPLIERS.length *
+        RISK_REWARDS.length *
+        HOLDING_BARS[timeframe].length,
+    0,
+  );
 
   console.log("=".repeat(78));
   console.log("ドル円 — 勝率の総当たり探索");
   console.log("=".repeat(78));
   console.log(`ルール      : ${WIDE_RULES.length}件（順張り・逆張り・ブレイクアウト・値動き・構造・時間）`);
   console.log(`フィルター  : ${FILTERS.length}件`);
-  console.log(`決済        : 損切り${STOP_MULTIPLIERS.length}通り × 利確${RISK_REWARDS.length}通り`);
+  console.log(
+    `決済        : 損切り${STOP_MULTIPLIERS.length}通り × 利確${RISK_REWARDS.length}通り × 保有上限3通り`,
+  );
   console.log(`足          : 1時間足 ${series[0].candles.length}本 / 日足 ${series[1].candles.length}本`);
   console.log(`組み合わせ  : ${totalCombinations.toLocaleString()}通り`);
   console.log("");
@@ -213,26 +241,29 @@ async function main() {
 
         for (const stopMultiplier of STOP_MULTIPLIERS) {
           for (const riskReward of RISK_REWARDS) {
-            const cfg = configFor(timeframe, stopMultiplier, riskReward, args);
-            const stats = simulateFromSignals(scan, candles, cfg).stats;
+            for (const maxHoldingBars of HOLDING_BARS[timeframe]) {
+              const cfg = configFor(timeframe, stopMultiplier, riskReward, maxHoldingBars, args);
+              const stats = simulateFromSignals(scan, candles, cfg).stats;
 
-            if (stats.trades < args.minTrades) continue;
-            if (stats.winRate < args.target) continue;
-            if (stats.netPips <= 0) continue;
+              if (stats.trades < args.minTrades) continue;
+              if (stats.winRate < args.target) continue;
+              if (stats.netPips <= 0) continue;
 
-            const isBreakEven = breakEvenFromStats(stats);
-            if (!Number.isFinite(isBreakEven)) continue;
-            if (stats.winRate <= isBreakEven) continue;
+              const isBreakEven = breakEvenFromStats(stats);
+              if (!Number.isFinite(isBreakEven)) continue;
+              if (stats.winRate <= isBreakEven) continue;
 
-            candidates.push({
-              timeframe,
-              rule,
-              filter,
-              stopMultiplier,
-              riskReward,
-              is: stats,
-              isBreakEven,
-            });
+              candidates.push({
+                timeframe,
+                rule,
+                filter,
+                stopMultiplier,
+                riskReward,
+                maxHoldingBars,
+                is: stats,
+                isBreakEven,
+              });
+            }
           }
         }
       }
@@ -284,7 +315,13 @@ async function main() {
       oosScanCache.set(key, scan);
     }
 
-    const cfg = configFor(c.timeframe, c.stopMultiplier, c.riskReward, args);
+    const cfg = configFor(
+      c.timeframe,
+      c.stopMultiplier,
+      c.riskReward,
+      c.maxHoldingBars,
+      args,
+    );
     const oos = simulateFromSignals(scan, candles, cfg).stats;
     const oosBreakEven = breakEvenFromStats(oos);
 
@@ -327,6 +364,7 @@ async function main() {
       s.candidate.timeframe,
       s.candidate.stopMultiplier,
       s.candidate.riskReward,
+      s.candidate.maxHoldingBars,
       args,
     );
     const controls: BacktestStats[] = [];
@@ -361,14 +399,14 @@ async function main() {
     );
     console.log("");
     console.log(
-      `  ${"足".padEnd(7)}${"ルール".padEnd(22)}${"フィルター".padEnd(17)}${"損切り".padStart(6)}${"RR".padStart(6)}${"件数".padStart(7)}${"勝率".padStart(8)}${"分岐".padStart(8)}${"95%下限".padStart(9)}${"余裕".padStart(8)}`,
+      `  ${"足".padEnd(7)}${"ルール".padEnd(22)}${"フィルター".padEnd(17)}${"損切り".padStart(6)}${"RR".padStart(6)}${"保有".padStart(6)}${"件数".padStart(7)}${"勝率".padStart(8)}${"分岐".padStart(8)}${"95%下限".padStart(9)}${"余裕".padStart(8)}`,
     );
     for (const s of shown) {
       const c = s.candidate;
       const margin = s.lowerBound - s.oosBreakEven;
       console.log(
         `  ${(c.timeframe === "daily" ? "日足" : "1H").padEnd(7)}${c.rule.id.padEnd(22)}${c.filter.id.padEnd(17)}` +
-          `${fmt(c.stopMultiplier, 2).padStart(6)}${fmt(c.riskReward, 2).padStart(6)}${String(s.oos.trades).padStart(7)}` +
+          `${fmt(c.stopMultiplier, 2).padStart(6)}${fmt(c.riskReward, 2).padStart(6)}${String(c.maxHoldingBars).padStart(6)}${String(s.oos.trades).padStart(7)}` +
           `${(fmt(s.oos.winRate) + "%").padStart(8)}${(fmt(s.oosBreakEven) + "%").padStart(8)}` +
           `${(fmt(s.lowerBound) + "%").padStart(9)}${(fmt(margin) + "p").padStart(8)}`,
       );

@@ -800,6 +800,53 @@ export const FILTERS: RuleFilter[] = [
     idea: "東京時間だけ（UTC 0〜7時）",
     allows: ({ hourUtc, i }) => hourUtc[i] < 7,
   },
+
+  /*
+   * 曜日。
+   *
+   * 「月曜は方向が出ない」「木金は指標で荒れる」といった言い伝えは多い。
+   * 言い伝えとして残っているだけで確かめられていないので、条件として
+   * 掛けられるようにする。土日は取引が無いので5つ。
+   */
+  ...([
+    [1, "月"],
+    [2, "火"],
+    [3, "水"],
+    [4, "木"],
+    [5, "金"],
+  ] as [number, string][]).map(([day, label]): RuleFilter => ({
+    id: `weekday_${day}`,
+    idea: `${label}曜だけ`,
+    allows: ({ dayOfWeek, i }) => dayOfWeek[i] === day,
+  })),
+
+  /*
+   * 時間帯を4つに割る。
+   *
+   * `london_ny` は7〜21時をひとまとめにしているが、ロンドンが開いた直後と
+   * NYが閉じる前では性格が違う。細かく割って、どこかに偏りが無いかを見る。
+   */
+  ...([
+    [0, 6, "深夜〜東京前場"],
+    [6, 12, "東京後場〜ロンドン序盤"],
+    [12, 18, "ロンドン後半〜NY序盤"],
+    [18, 24, "NY後半〜引け"],
+  ] as [number, number, string][]).map(([from, to, label]): RuleFilter => ({
+    id: `hours_${from}_${to}`,
+    idea: `UTC ${from}〜${to}時だけ（${label}）`,
+    allows: ({ hourUtc, i }) => hourUtc[i] >= from && hourUtc[i] < to,
+  })),
+
+  {
+    id: "month_first_half",
+    idea: "月の前半だけ（実需のフローが偏るという説）",
+    allows: ({ dayOfMonth, i }) => dayOfMonth[i] <= 15,
+  },
+  {
+    id: "month_second_half",
+    idea: "月の後半だけ",
+    allows: ({ dayOfMonth, i }) => dayOfMonth[i] > 15,
+  },
 ];
 
 /** ルールとフィルターを合わせて走査する */
