@@ -208,22 +208,41 @@ describe("calculateParabolicSAR", () => {
 
   it("直近2本のレンジに食い込ませない", () => {
     /*
-     * SARは直近2本の高安の内側に入ってはいけない。ここを1本しか見ないと、
+     * SARは直近**2本**の高安の内側に入ってはいけない。1本しか見ないと、
      * 前々足の安値を割った位置にSARが置かれ、本来より早く反転する。
-     * 押しを作って、その安値より下にSARが留まることを見る。
+     *
+     * 条件つきで assert すると、条件が偽のとき何も検証しない。実際、
+     * 最初は `if (rising[i])` の中で1点だけ見ており、この不備を突く
+     * ミューテーションがすり抜けた。**不変条件を全ての足で確かめる。**
+     *
+     * 1本おきに深い下ヒゲを入れて、前々足の安値が最小になる足を作る。
+     * そこが1本しか見ない実装との差が出る場所。
      */
     const spec: [number, number, number, number][] = [];
-    for (let i = 0; i < 20; i++) spec.push([100 + i, 100.5 + i, 99.5 + i, 100.4 + i]);
-    // 深い押しを1本入れる（前々足の安値を大きく下回る）
-    spec.push([119, 119.5, 112, 118]);
-    spec.push([118, 119, 117.5, 118.8]);
-    spec.push([118.8, 120, 118, 119.8]);
+    for (let i = 0; i < 60; i++) {
+      const base = 100 + i * 0.5;
+      const deepDip = i % 2 === 0;
+      spec.push([base, base + 0.6, base - (deepDip ? 2.5 : 0.2), base + 0.4]);
+    }
     const candles = bars(spec);
     const { sar, rising } = calculateParabolicSAR(candles);
-    const i = candles.length - 1;
-    if (rising[i]) {
-      expect(sar[i]).toBeLessThanOrEqual(Math.min(candles[i - 1].low, candles[i - 2].low));
+
+    let checked = 0;
+    for (let i = 2; i < candles.length; i++) {
+      if (!Number.isFinite(sar[i])) continue;
+      checked++;
+      if (rising[i]) {
+        expect(sar[i], `index ${i} で直近2本の安値を上回っています`).toBeLessThanOrEqual(
+          Math.min(candles[i - 1].low, candles[i - 2].low) + 1e-9,
+        );
+      } else {
+        expect(sar[i], `index ${i} で直近2本の高値を下回っています`).toBeGreaterThanOrEqual(
+          Math.max(candles[i - 1].high, candles[i - 2].high) - 1e-9,
+        );
+      }
     }
+    // 1本も見ていなければ、この検証は何も言っていない
+    expect(checked).toBeGreaterThan(40);
   });
 
   it("トレンドが反転すれば rising も反転する", () => {

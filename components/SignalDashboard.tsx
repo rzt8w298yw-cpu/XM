@@ -494,22 +494,34 @@ function FindingsSummary() {
           </dd>
         </div>
         <div>
-          <dt className="font-semibold text-slate-300">別の入り方も14通り試しました</dt>
+          <dt className="font-semibold text-slate-300">
+            285,120通りを総当たりしました
+          </dt>
           <dd className="mt-1 text-slate-400">
-            1時間足7件・日足7件を12通貨ペアで検証。
-            決済を外して測っても、35通り中 p&lt;0.05 は2件（偶然の期待値1.8件）。
-            <span className="text-slate-300">価格から方向は当てられませんでした。</span>
+            33ルール（順張り・逆張り・ブレイクアウト・値動き・構造・時間）× 20フィルター
+            （曜日・時間帯・トレンド・ボラティリティ）× 損切り6 × 利確12 × 保有3。
+            前半70%で探し、後半30%は探索に使っていません。
           </dd>
         </div>
         <div>
-          <dt className="font-semibold text-slate-300">残ったのは相場付きの話でした</dt>
+          <dt className="font-semibold text-slate-300">
+            通ったものは、他の通貨ペアで落ちました
+          </dt>
           <dd className="mt-1 text-slate-400">
-            唯一残った「月初の逆張り」を1971年からの22通貨で確認すると、
-            直近14年は有効・その前の40年は逆向き。符号は5〜15年周期で入れ替わります。
+            4つの関門（標本内・標本外・ランダム超え・信頼区間）を
+            <span className="tabular text-slate-300"> 89 </span>件が通過。
+            そのすべてが12通貨ペア中
+            <span className="tabular text-slate-300"> 0〜1 </span>ペアでしか成立せず、
+            <span className="text-slate-300">値動きの性質ではありませんでした。</span>
           </dd>
         </div>
       </dl>
       <p className="mt-4 border-t border-slate-800 pt-3 text-xs text-slate-400">
+        28万通り試せば、1つの通貨ペアで良く見えるものは
+        <strong className="text-slate-200">必ず</strong>見つかります。他のペアで出ないなら、
+        それは相場の性質ではなく試行回数の結果です。
+      </p>
+      <p className="mt-2 text-xs text-slate-400">
         だからこのツールは<strong className="text-slate-200">当てるためのもの</strong>ではなく、
         <strong className="text-slate-200">手法が水準を満たしているかを判定するためのもの</strong>です。
         下の判定は、その検証にかけた実例として置いてあります。
