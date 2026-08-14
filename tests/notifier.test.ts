@@ -7,6 +7,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createWebhookNotifier,
+  describeFetchFailure,
   diffSignals,
   type EvaluationInput,
   type SignalState,
@@ -179,5 +180,50 @@ describe("createWebhookNotifier", () => {
     await expect(notifier.send(notifications[0])).rejects.toThrow(/HTTP 404/);
 
     vi.unstubAllGlobals();
+  });
+});
+
+describe("describeFetchFailure", () => {
+  /*
+   * `--test-notification` は利用者が最初に打つ命令で、失敗したときに
+   * 何を直すかを決める材料になる。Node の fetch は接続できないと
+   * `fetch failed` としか言わず、本当の原因は `cause` に入っている。
+   */
+  function failure(code: string): Error {
+    const error = new Error("fetch failed");
+    error.cause = Object.assign(new Error("connect " + code), { code });
+    return error;
+  }
+
+  it("接続拒否は、ホストとポートを確かめるよう言う", () => {
+    expect(describeFetchFailure(failure("ECONNREFUSED"))).toContain("ポート");
+  });
+
+  it("名前解決の失敗は、綴りとDNSを確かめるよう言う", () => {
+    const message = describeFetchFailure(failure("ENOTFOUND"));
+    expect(message).toContain("ホスト名");
+    expect(message).toContain("ENOTFOUND");
+  });
+
+  it("証明書の問題はそれと分かるようにする", () => {
+    expect(describeFetchFailure(failure("CERT_HAS_EXPIRED"))).toContain("証明書");
+  });
+
+  it("タイムアウトは秒数まで言う", () => {
+    const aborted = new Error("This operation was aborted");
+    aborted.name = "AbortError";
+    expect(describeFetchFailure(aborted)).toContain("15秒");
+  });
+
+  it("知らない原因でも、cause の中身を落とさない", () => {
+    // 分類できないものを "fetch failed" だけにして捨てると、
+    // 調べる手がかりが無くなる
+    const error = new Error("fetch failed");
+    error.cause = new Error("なにか別の理由");
+    expect(describeFetchFailure(error)).toContain("なにか別の理由");
+  });
+
+  it("cause が無ければ元の文言をそのまま返す", () => {
+    expect(describeFetchFailure(new Error("そのままの理由"))).toBe("そのままの理由");
   });
 });

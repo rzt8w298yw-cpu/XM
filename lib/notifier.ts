@@ -218,6 +218,49 @@ function emojiFor(notification: Notification): string {
   }
 }
 
+/**
+ * `fetch` の失敗を、直せる形の文章にする。
+ *
+ * Node の `fetch` は接続できなかったとき `fetch failed` としか言わない。
+ * 本当の原因（名前解決、接続拒否、証明書、タイムアウト）は `cause` に
+ * 入っている。**Webhookの設定を確かめるための命令が「fetch failed」を
+ * 返すのでは、何を直せばよいか分からない。**
+ *
+ * `--test-notification` は利用者が最初に打つ命令なので、ここだけは
+ * 原因まで出す。
+ */
+export function describeFetchFailure(error: unknown): string {
+  if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
+    return "送信先が15秒以内に応答しませんでした。URLとネットワークを確認してください。";
+  }
+
+  const cause: unknown = error instanceof Error ? error.cause : undefined;
+  const code =
+    typeof cause === "object" && cause !== null && "code" in cause
+      ? String(cause.code)
+      : "";
+
+  switch (code) {
+    case "ECONNREFUSED":
+      return "接続を拒否されました（ECONNREFUSED）。URLのホストとポートを確認してください。";
+    case "ENOTFOUND":
+    case "EAI_AGAIN":
+      return `ホスト名を解決できませんでした（${code}）。URLの綴りとDNSを確認してください。`;
+    case "ETIMEDOUT":
+      return "接続がタイムアウトしました（ETIMEDOUT）。到達できるネットワークか確認してください。";
+    case "CERT_HAS_EXPIRED":
+    case "UNABLE_TO_VERIFY_LEAF_SIGNATURE":
+    case "SELF_SIGNED_CERT_IN_CHAIN":
+      return `証明書を検証できませんでした（${code}）。`;
+    default:
+      break;
+  }
+
+  const detail = cause instanceof Error ? cause.message : "";
+  const base = error instanceof Error ? error.message : String(error);
+  return detail ? `${base}: ${detail}` : base;
+}
+
 export function createWebhookNotifier(url: string): Notifier {
   return {
     async send(notification) {
@@ -227,12 +270,18 @@ export function createWebhookNotifier(url: string): Notifier {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15_000);
       try {
-        const response = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: message, text: message }),
-          signal: controller.signal,
-        });
+        let response: Response;
+        try {
+          response = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content: message, text: message }),
+            signal: controller.signal,
+          });
+        } catch (error) {
+          // 届かなかった場合。HTTPエラーとは別で、原因が cause に隠れている
+          throw new Error(describeFetchFailure(error));
+        }
         if (!response.ok) {
           const detail = await response.text().catch(() => "");
           throw new Error(

@@ -714,6 +714,31 @@ const MUTATIONS: Mutation[] = [
     find: "i < Math.min(toIndex, ctx.candles.length - 1); i++) {",
     replace: "i < Math.min(toIndex, ctx.candles.length); i++) {",
   },
+  // --- 送信の失敗 ---
+  {
+    description: "送信失敗: cause を見ずに fetch failed のまま返す",
+    file: "lib/notifier.ts",
+    find: "  const cause: unknown = error instanceof Error ? error.cause : undefined;",
+    replace: "  const cause: unknown = undefined;",
+  },
+  {
+    description: "送信失敗: 分類できない原因のとき cause の中身を捨てる",
+    file: "lib/notifier.ts",
+    find: "  return detail ? `${base}: ${detail}` : base;",
+    replace: "  return base;",
+  },
+  {
+    description: "送信失敗: タイムアウトを他のエラーと同じ扱いにする",
+    file: "lib/notifier.ts",
+    find: "  if (error instanceof Error && (error.name === \"AbortError\" || error.name === \"TimeoutError\")) {",
+    replace: "  if (false) {",
+  },
+  {
+    description: "送信失敗: 届かなかったときの説明をせず、そのまま投げる",
+    file: "lib/notifier.ts",
+    find: "          throw new Error(describeFetchFailure(error));",
+    replace: "          throw error;",
+  },
   // --- 通知の中身 ---
   {
     description: "通知: 損益分岐の的中率を書かない（売買推奨と見分けがつかなくなる）",
