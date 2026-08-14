@@ -66,7 +66,7 @@ npm run dev      # http://localhost:3000
 ```bash
 npm run build      # 本番ビルド
 npm start          # 本番サーバー起動
-npm test           # テスト（506件）
+npm test           # テスト（507件）
 npm run lint       # ESLint
 npm run typecheck  # 型チェック
 ```
@@ -1447,7 +1447,7 @@ n ≧ ( 1.96 × ばらつき / 期待値 )²
 
 | ワークフロー | いつ | 内容 |
 | --- | --- | --- |
-| `ci.yml` | push / PR | 型チェック・Lint・テスト506件・ビルド・文字色の検査 |
+| `ci.yml` | push / PR | 型チェック・Lint・テスト507件・ビルド・文字色の検査 |
 | `mutate.yml` | 週1回（月曜）+ 手動 | ミューテーションテスト142件 |
 
 **ミューテーションは分けてあります。** 142件それぞれでテスト全体を回すので

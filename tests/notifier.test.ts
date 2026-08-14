@@ -168,6 +168,28 @@ describe("createWebhookNotifier", () => {
     vi.unstubAllGlobals();
   });
 
+  it("届かなかったときは、原因まで説明した例外にする", async () => {
+    /*
+     * `describeFetchFailure` を単体で試すだけでは足りない。**それが
+     * 呼ばれていること**まで確かめないと、配線が外れても気づけない。
+     * 実際、説明せずそのまま投げるミューテーションがすり抜けた。
+     */
+    const refused = new Error("fetch failed");
+    refused.cause = Object.assign(new Error("connect ECONNREFUSED"), {
+      code: "ECONNREFUSED",
+    });
+    const fetchMock = vi.fn().mockRejectedValue(refused);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const notifier = createWebhookNotifier("https://example.test/webhook");
+    const { notifications } = diffSignals({}, [evaluation("USDJPY", "BUY")]);
+
+    // "fetch failed" のままではなく、直せる形になっていること
+    await expect(notifier.send(notifications[0])).rejects.toThrow(/ポート/);
+
+    vi.unstubAllGlobals();
+  });
+
   it("Webhookがエラーを返したら例外にする", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false, status: 404, text: () => Promise.resolve("not found"),
