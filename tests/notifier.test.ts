@@ -44,8 +44,36 @@ function evaluation(symbolId: string, signal: SignalType, barTime = 1000): Evalu
       stopPips: 30, targetPips: 60, riskRewardRatio: 2,
     },
     barTime,
+    costPips: 2.3,
   };
 }
+
+describe("通知本文", () => {
+  /*
+   * 通知は画面と違って、注釈を読まずに行動できる。深夜に届いた
+   * 「BUY・損切りここ・利確ここ」だけを見て発注できてしまうので、
+   * **その設定で何%当てれば±0なのか**と、**この判定が検証を通って
+   * いないこと**を同じ場所に書く。
+   */
+  it("損益分岐の的中率を添える", () => {
+    const { notifications } = diffSignals({}, [evaluation("USDJPY", "BUY")]);
+    // 損切り30pips / RR 1:2 / コスト2.3pips → (30+2.3)/(60+30) = 35.9%
+    expect(notifications[0].body).toContain("損益±0に必要な的中率 35.9%");
+  });
+
+  it("検証を通っていないことを添える", () => {
+    const { notifications } = diffSignals({}, [evaluation("USDJPY", "BUY")]);
+    expect(notifications[0].body).toContain("ランダムエントリーと区別がつきません");
+  });
+
+  it("解除の通知にはエントリーの情報を載せない", () => {
+    // 解除は「もう条件を満たしていない」だけなので、損切り幅も何も無い
+    const state = { USDJPY: { signal: "BUY" as const, barTime: 900 } };
+    const { notifications } = diffSignals(state, [evaluation("USDJPY", "WAIT")]);
+    expect(notifications[0].kind).toBe("cleared");
+    expect(notifications[0].body).not.toContain("損益±0に必要な的中率");
+  });
+});
 
 describe("diffSignals", () => {
   it("初回にBUYが出れば通知する", () => {

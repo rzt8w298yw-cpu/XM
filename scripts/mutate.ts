@@ -714,6 +714,44 @@ const MUTATIONS: Mutation[] = [
     find: "i < Math.min(toIndex, ctx.candles.length - 1); i++) {",
     replace: "i < Math.min(toIndex, ctx.candles.length); i++) {",
   },
+  // --- 通知の中身 ---
+  {
+    description: "通知: 損益分岐の的中率を書かない（売買推奨と見分けがつかなくなる）",
+    file: "lib/notifier.ts",
+    find: "        `損益±0に必要な的中率 ${breakEven.requiredWinRate.toFixed(1)}%` +",
+    replace: "        `` +",
+  },
+  {
+    description: "通知: 検証を通っていない旨を書かない",
+    file: "lib/notifier.ts",
+    find: "  lines.push(\n    \"※ この判定は実データでランダムエントリーと区別がつきませんでした\" +",
+    replace: "  if (false) lines.push(\n    \"※ この判定は実データでランダムエントリーと区別がつきませんでした\" +",
+  },
+  {
+    description: "通知: 損益分岐の計算からコストを落とす（必要水準が低く見える）",
+    file: "lib/notifier.ts",
+    find: "      costPips: evaluation.costPips,",
+    replace: "      costPips: 0,",
+  },
+  // --- 起動直後の扱い ---
+  {
+    description: "健康: 未設定の時刻(0)を経過時間として使う（起動直後に20679日と出る）",
+    file: "lib/health.ts",
+    find: "  return state.lastNotifiedAt > 0;",
+    replace: "  return true;",
+  },
+  {
+    description: "健康: 起動直後に時計を合わせず、そのまま判定に進む",
+    file: "lib/health.ts",
+    find: "  if (!hasStarted(previous)) {\n    return { notice: null, nextState: { ...previous, since: now, lastNotifiedAt: now } };\n  }",
+    replace: "",
+  },
+  {
+    description: "健康: 起動直後の時計合わせで生存確認も送ってしまう",
+    file: "lib/health.ts",
+    find: "    return { notice: null, nextState: { ...previous, since: now, lastNotifiedAt: now } };",
+    replace: "    return { notice: { kind: \"heartbeat\", title: \"監視は動いています\", body: \"起動しました。\" }, nextState: { ...previous, since: now, lastNotifiedAt: now } };",
+  },
   // --- 照合（フォワードテスト） ---
   {
     description: "照合: 利確からスプレッドを引かない",

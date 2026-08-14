@@ -34,11 +34,24 @@ export interface HealthState {
   lastNotifiedAt: number;
 }
 
+/**
+ * まだ一度も動いていない状態。
+ *
+ * 時刻を 0 にしてあるのは「未設定」の印。**経過時間として使ってはいけない。**
+ * 実際、初回の起動で「20679日のあいだシグナルはありません」と出た——
+ * 1970年からの経過を出していた。`0` は時刻ではなく「まだ無い」の意味なので、
+ * 差を取る前に必ず `hasStarted` で確かめる。
+ */
 export const INITIAL_HEALTH: HealthState = {
   status: "ok",
   since: 0,
   lastNotifiedAt: 0,
 };
+
+/** 一度でも周期を回したか。0 は「まだ無い」の印 */
+export function hasStarted(state: HealthState): boolean {
+  return state.lastNotifiedAt > 0;
+}
 
 /** 1周期の結果 */
 export interface CycleOutcome {
@@ -135,6 +148,17 @@ export function diffHealth(
       notice,
       nextState: { status, since: now, lastNotifiedAt: now },
     };
+  }
+
+  /*
+   * 初回は時計を合わせるだけ。
+   *
+   * `lastNotifiedAt` が 0 のまま差を取ると 1970年からの経過になり、
+   * 起動した瞬間に「20679日のあいだシグナルはありません」を送る。
+   * 起動直後に無音を報告しても意味が無いので、ここで起点だけ記録する。
+   */
+  if (!hasStarted(previous)) {
+    return { notice: null, nextState: { ...previous, since: now, lastNotifiedAt: now } };
   }
 
   // 状態は同じ。何も送らないまま時間が経ちすぎていないか

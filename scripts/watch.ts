@@ -163,6 +163,7 @@ async function evaluateAll(
           },
         ),
         barTime: market.candles1H.at(-1)?.timestamp ?? Date.now(),
+        costPips: strategy.assumedCostPips,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

@@ -8,6 +8,7 @@
  * 送信先はWebhook（Discord / Slack）を既定にしているが、`Notifier` を
  * 差し替えればLINEでもメールでも同じ仕組みで使える。
  */
+import { requiredAccuracy } from "./edgeMath";
 import type { SignalResult, SignalType } from "./autoSignalEngine";
 import type { TradePlan } from "./tradePlan";
 
@@ -76,6 +77,14 @@ export interface EvaluationInput {
   tradePlan: TradePlan | null;
   /** 判定に使った最新1H足の時刻 */
   barTime: number;
+  /**
+   * 往復のコスト（pips）。損益分岐の的中率を出すのに使う。
+   *
+   * 通知に入れるため。**通知は画面と違って、注釈を読まずに行動できる。**
+   * 深夜に届いた「BUY・損切りここ・利確ここ」だけを見て発注できてしまう
+   * ので、その設定で何%当てれば±0なのかを同じ場所に書く。
+   */
+  costPips: number;
 }
 
 /**
@@ -147,6 +156,34 @@ function formatEntryBody(evaluation: EvaluationInput): string {
 
   const met = result.conditions.filter((c) => c.met).length;
   lines.push(`条件 ${met}/${result.conditions.length} 充足`);
+
+  /*
+   * 損益分岐の的中率を必ず添える。
+   *
+   * ここまでの行は「入る根拠」しか書いておらず、シグナル配信の売買推奨と
+   * 見分けがつかない。README と画面には「この判定はランダムエントリーと
+   * 区別がつかない」と書いてあるが、**通知はそれを読まずに行動できる**。
+   *
+   * 損切り幅とコストだけで決まる数字なので、相場が何をするかに関係なく
+   * 成り立つ。実データで確認できた的中率（35.0%）と並べて出す。
+   */
+  if (tradePlan && tradePlan.stopPips > 0) {
+    const breakEven = requiredAccuracy({
+      stopDistancePips: tradePlan.stopPips,
+      riskRewardRatio: tradePlan.targetPips / tradePlan.stopPips,
+      costPips: evaluation.costPips,
+    });
+    if (Number.isFinite(breakEven.requiredWinRate)) {
+      lines.push(
+        `損益±0に必要な的中率 ${breakEven.requiredWinRate.toFixed(1)}%` +
+          `（往復${evaluation.costPips} pips込み）`,
+      );
+    }
+  }
+  lines.push(
+    "※ この判定は実データでランダムエントリーと区別がつきませんでした" +
+      "（9年4か月・440件で勝率35.0%）。検証用です。",
+  );
 
   return lines.join("\n");
 }

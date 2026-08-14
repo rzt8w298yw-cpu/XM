@@ -9,6 +9,7 @@ import {
   assessCycle,
   diffHealth,
   markNotified,
+  hasStarted,
   INITIAL_HEALTH,
   type CycleOutcome,
   type HealthState,
@@ -150,5 +151,63 @@ describe("markNotified", () => {
     // シグナルを送った記録を入れると、同じ時刻でも出ない
     const fresh = markNotified(stale, options.now);
     expect(diffHealth(fresh, cycle(), options).notice).toBeNull();
+  });
+});
+
+describe("初回の起動", () => {
+  /*
+   * `INITIAL_HEALTH` の時刻は 0 で、これは「まだ無い」の印であって
+   * 1970年1月1日ではない。差を取ると 20679日 になり、起動した瞬間に
+   * 「20679日のあいだシグナルはありません」を送っていた。
+   */
+  it("起動直後に生存確認を送らない", () => {
+    const options = { heartbeatMs: 24 * 3_600_000, now: Date.now() };
+    const { notice } = diffHealth(INITIAL_HEALTH, cycle(), options);
+    expect(notice).toBeNull();
+  });
+
+  it("起動直後は時計だけ合わせる", () => {
+    const now = Date.now();
+    const { nextState } = diffHealth(INITIAL_HEALTH, cycle(), {
+      heartbeatMs: 24 * 3_600_000,
+      now,
+    });
+    expect(nextState.lastNotifiedAt).toBe(now);
+    expect(nextState.since).toBe(now);
+  });
+
+  it("時計を合わせた次の周期からは、正しい経過時間で判定する", () => {
+    const start = Date.now();
+    const options = { heartbeatMs: 24 * 3_600_000, now: start };
+    const { nextState } = diffHealth(INITIAL_HEALTH, cycle(), options);
+
+    // 23時間後ではまだ出ない
+    expect(
+      diffHealth(nextState, cycle(), { ...options, now: start + 23 * 3_600_000 }).notice,
+    ).toBeNull();
+
+    // 25時間後には出る
+    const later = diffHealth(nextState, cycle(), {
+      ...options,
+      now: start + 25 * 3_600_000,
+    });
+    expect(later.notice?.kind).toBe("heartbeat");
+    // 20679日ではなく25時間
+    expect(later.notice?.body).toContain("25時間");
+  });
+
+  it("hasStarted は 0 を「まだ無い」として扱う", () => {
+    expect(hasStarted(INITIAL_HEALTH)).toBe(false);
+    expect(hasStarted({ ...INITIAL_HEALTH, lastNotifiedAt: 1 })).toBe(true);
+  });
+
+  it("異常は起動直後でも知らせる（時計合わせより優先）", () => {
+    // 起動していきなり全滅しているなら、それは伝えるべき
+    const { notice } = diffHealth(
+      INITIAL_HEALTH,
+      cycle({ evaluated: 0, noRealData: 1 }),
+      { heartbeatMs: 24 * 3_600_000, now: Date.now() },
+    );
+    expect(notice?.kind).toBe("problem");
   });
 });
