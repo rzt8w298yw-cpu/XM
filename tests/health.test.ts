@@ -108,9 +108,30 @@ describe("diffHealth", () => {
   });
 
   it("生存確認は0で無効にできる", () => {
-    const previous: HealthState = { status: "ok", since: 0, lastNotifiedAt: 0 };
-    const { notice } = diffHealth(previous, cycle(), { ...options, heartbeatMs: 0 });
-    expect(notice).toBeNull();
+    /*
+     * **一度動き出した状態で確かめる。**
+     *
+     * 以前は `lastNotifiedAt: 0` を渡していた。それは「まだ動いていない」の
+     * 印なので、初回の時計合わせで早期に返るようになった時点で、生存確認の
+     * 分岐に到達しなくなった。`notice` は無効化されたからではなく、そこまで
+     * 行かないから null になる——**何も検証していないのに通る。**
+     * 実際、これを突くミューテーションが素通りするようになった。
+     */
+    // now は 100*HOUR なので、そこから100時間引くと 0 になり
+    // 「まだ動いていない」の印と衝突する。10時間の時点を起点にする
+    const started: HealthState = {
+      status: "ok",
+      since: 10 * HOUR,
+      lastNotifiedAt: 10 * HOUR,
+    };
+
+    // 0 なら、90時間黙っていても送らない
+    expect(diffHealth(started, cycle(), { ...options, heartbeatMs: 0 }).notice).toBeNull();
+
+    // 0 でなければ送る（上の null が「無効化されたから」だと確かめる）
+    expect(
+      diffHealth(started, cycle(), { ...options, heartbeatMs: 24 * HOUR }).notice?.kind,
+    ).toBe("heartbeat");
   });
 
   it("時間の表し方が単位ごとに変わる", () => {
